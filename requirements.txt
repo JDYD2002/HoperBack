@@ -1,5 +1,5 @@
 # Dependências principais
-pydantic==2.7.1
+pydantic==2.8.1
 fastapi==0.110.1
 uvicorn[standard]==0.29.0
 openai==1.30.3
@@ -14,6 +14,3 @@ python-multipart==0.0.9
 torch==2.5.0
 python-dotenv==1.0.1
 loguru==0.7.2
-
-
-
