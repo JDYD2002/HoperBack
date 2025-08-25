@@ -36,4 +36,4 @@ jobs:
           # pytest tests/
 
       - name: Start API (para teste local)
-        run: uvicorn main:app --host 0.0.0.0 --port 8000
+        run: uvicorn backend:app --host 0.0.0.0 --port 8000
