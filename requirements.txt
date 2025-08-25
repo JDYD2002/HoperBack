@@ -1,4 +1,4 @@
-# Forçar instalação binária de pydantic_core compatível
+# Forçar instalação binária de pydantic_core para evitar compilação Rust
 pydantic_core==2.33.2 --only-binary=:all:
 
 # Dependências principais
@@ -6,7 +6,7 @@ pydantic==2.7.1
 fastapi==0.110.1
 uvicorn[standard]==0.29.0
 openai==1.30.3
-ai21==1.1.1
+ai21==3.1.0               # versão existente no PyPI
 transformers==4.41.1
 accelerate==0.30.1
 requests==2.31.0
