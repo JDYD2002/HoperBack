@@ -1,5 +1,5 @@
-# Forçar instalação binária para evitar compilação
-pydantic_core==2.18.2 --only-binary=:all:
+# Forçar instalação binária de pydantic_core compatível
+pydantic_core==2.33.2 --only-binary=:all:
 
 # Dependências principais
 pydantic==2.7.1
