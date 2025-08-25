@@ -1,26 +1,17 @@
-# ====================== API / Backend ======================
 fastapi==0.110.1
-uvicorn==0.29.0
-pydantic>=2.7.2  # versão que tem wheel prebuilt
-
-# ====================== Integração IA ======================
+uvicorn[standard]==0.29.0
+pydantic==2.7.1
 openai==1.30.3
 ai21==1.1.1
 transformers==4.41.1
 accelerate==0.30.1
-
-# ====================== HTTP requests ======================
 requests==2.31.0
-httpx==0.27.0
 aiohttp==3.9.4
-python-multipart==0.0.9
-
-# ====================== Texto para fala ======================
+httpx==0.27.0
 gtts==2.5.1
-
-# ====================== Logs ======================
-loguru==0.7.0
-
-# ====================== Torch CPU ======================
-# Render não tem GPU, usar wheel pronta
+python-multipart==0.0.9
 torch==2.3.0
+python-dotenv==1.0.1         # Gerenciar variáveis de ambiente via .env
+loguru==0.7.2                # Logging moderno e colorido
+
+
