@@ -6,11 +6,11 @@ pydantic==2.7.1
 fastapi==0.110.1
 uvicorn[standard]==0.29.0
 openai==1.30.3
-ai21==3.1.0               # versão existente no PyPI
+ai21==3.1.0
 transformers==4.41.1
 accelerate==0.30.1
 requests==2.31.0
-aiohttp==3.9.4
+aiohttp==3.9.5             # versão compatível com Python 3.12
 httpx==0.27.0
 gtts==2.5.1
 python-multipart==0.0.9
