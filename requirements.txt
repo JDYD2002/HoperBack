@@ -9,6 +9,6 @@ requests==2.31.0
 httpx==0.27.0
 gtts==2.5.1
 python-multipart==0.0.9
-torch==2.3.0
+torch==2.8.0
 loguru==0.7.0
-aiohttp==3.9.5
+aiohttp==3.9.4
