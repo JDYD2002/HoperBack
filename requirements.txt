@@ -10,8 +10,9 @@ aiohttp==3.9.4
 httpx==0.27.0
 gtts==2.5.1
 python-multipart==0.0.9
-torch==2.3.0
+torch==2.5.0
 python-dotenv==1.0.1         # Gerenciar variáveis de ambiente via .env
 loguru==0.7.2                # Logging moderno e colorido
+
 
 
