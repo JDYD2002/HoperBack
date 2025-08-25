@@ -1,7 +1,7 @@
 # ====================== API / Backend ======================
 fastapi==0.110.1
 uvicorn==0.29.0
-pydantic==2.7.1  # pydantic-core é puxado automaticamente
+pydantic>=2.7.2  # versão que tem wheel prebuilt
 
 # ====================== Integração IA ======================
 openai==1.30.3
@@ -22,6 +22,6 @@ gtts==2.5.1
 loguru==0.7.0
 
 # ====================== Torch CPU ======================
-# Render não tem GPU por padrão, precisa do índice do PyTorch CPU
+# Render não tem GPU, usar wheel pronta
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.8.0+cpu
+torch==2.8.1+cpu
