@@ -30,10 +30,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests (opcional)
+      - name: Run tests (exemplo)
         run: |
           echo "Rodando testes..."
           # pytest tests/
 
-      - name: Start API (para teste local)
-        run: uvicorn backend:app --host 0.0.0.0 --port 8000
