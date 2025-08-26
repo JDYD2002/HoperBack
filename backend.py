@@ -279,6 +279,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         "posto_enviado": 0
     })
 
+    # não retorna posto aqui
     return {"user_id": user_id, "avatar": avatar}
 
 
@@ -292,31 +293,14 @@ async def login(cad: Cadastro):
 
     user_data = user_ref[0].to_dict()
     user_id = user_ref[0].id
-    nome = user_data["nome"]
-    cep = user_data["cep"]
 
-    # Buscar posto de saúde
-    async def format_posto(cep, primeiro_nome):
-        res = await call_google_maps(cep, primeiro_nome)
-        if res:
-            lines = res.split("\n")
-            nome_line = next((l for l in lines if l.startswith("➡️ Nome:")), "")
-            end_line = next((l for l in lines if l.startswith("📍 Endereço:")), "")
-            return {
-                "nome": nome_line.replace("➡️ Nome: ", "") if nome_line else "Posto",
-                "endereco": end_line.replace("📍 Endereço: ", "") if end_line else "Endereço não informado"
-            }
-        return None
-
-    posto_obj = await format_posto(cep, nome.split()[0])
-
+    # só retorna os dados do usuário, sem posto
     return {
         "user_id": user_id,
-        "nome": nome,
+        "nome": user_data["nome"],
         "email": user_data["email"],
         "idade": user_data["idade"],
-        "avatar": user_data["avatar"],
-        "posto_proximo": posto_obj
+        "avatar": user_data["avatar"]
     }
 
 
@@ -327,7 +311,7 @@ async def posto_proximo(user_id: str):
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     user_data = user_doc.to_dict()
-    nome = user_data["nome"].split()[0] if user_data["nome"] else "Usuário"
+    nome = user_data["nome"].split()[0] if user_data.get("nome") else "Usuário"
     cep = user_data.get("cep", "")
 
     if not cep:
@@ -354,13 +338,13 @@ async def posto_proximo(user_id: str):
                 if places_data["status"] != "OK" or not places_data["results"]:
                     return []
 
-                postos = []
-                for place in places_data["results"][:5]:
-                    postos.append({
+                return [
+                    {
                         "nome": place.get("name", "Posto"),
                         "endereco": place.get("vicinity", "Endereço não disponível")
-                    })
-                return postos
+                    }
+                    for place in places_data["results"][:5]
+                ]
         except Exception as e:
             logger.warning(f"⚠️ Google Maps API falhou: {e}")
             return []
@@ -406,6 +390,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
 
 
 
