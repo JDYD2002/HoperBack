@@ -231,16 +231,18 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
             sugestoes.extend([d for d in doencas if d not in sugestoes])
     return sugestoes[:max_itens]
 
-# ====================== ROTAS ======================
+# ====================== ROTAS AJUSTADAS ======================
+
 @app.post("/register")
-def register(cad: Cadastro, db: Session = Depends(get_db)):
-    user_id = cad.uid or str(uuid.uuid4())
+async def register(cad: Cadastro, db: Session = Depends(get_db)):
+    user_id = getattr(cad, "uid", None) or str(uuid.uuid4())
     avatar = avatar_por_idade(cad.idade)
 
+    # Salvar no Postgres
     user = db.query(User).filter(User.id == user_id).first()
     if user:
         user.nome = cad.nome.strip()
-        user.email = cad.email
+        user.email = cad.email.strip()
         user.cep = cad.cep.strip()
         user.idade = cad.idade
         user.avatar = avatar
@@ -248,42 +250,42 @@ def register(cad: Cadastro, db: Session = Depends(get_db)):
         user = User(
             id=user_id,
             nome=cad.nome.strip(),
-            email=cad.email,
+            email=cad.email.strip(),
             cep=cad.cep.strip(),
             idade=cad.idade,
             avatar=avatar
         )
         db.add(user)
     db.commit()
-    db.refresh(user)
-    return {"user_id": user.id, "avatar": avatar}
 
-@app.get("/users/{user_id}")
-def get_user(user_id: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    return {
-        "id": user.id,
-        "nome": user.nome,
-        "email": user.email,
-        "cep": user.cep,
-        "idade": user.idade,
-        "avatar": user.avatar,
-        "posto_enviado": user.posto_enviado,
-        "created_at": user.created_at
-    }
+    # Salvar no Firebase
+    db_firebase.collection("users").document(user_id).set({
+        "nome": cad.nome.strip(),
+        "email": cad.email.strip(),
+        "cep": cad.cep.strip(),
+        "idade": cad.idade,
+        "avatar": avatar,
+        "created_at": datetime.utcnow().isoformat(),
+        "posto_enviado": 0
+    })
+
+    return {"user_id": user_id, "avatar": avatar}
+
 
 @app.post("/login")
-async def login(cad: Cadastro, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == cad.email).first()
-    if not user:
+async def login(cad: Cadastro):
+    # Buscar no Firebase
+    user_ref = db_firebase.collection("users").where("email", "==", cad.email).get()
+
+    if not user_ref:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
-    nome = user.nome
-    cep = user.cep
-    user_id = user.id
+    user_data = user_ref[0].to_dict()
+    user_id = user_ref[0].id
+    nome = user_data["nome"]
+    cep = user_data["cep"]
 
+    # Buscar posto de saúde
     async def format_posto(cep, primeiro_nome):
         res = await call_google_maps(cep, primeiro_nome)
         if res:
@@ -301,20 +303,22 @@ async def login(cad: Cadastro, db: Session = Depends(get_db)):
     return {
         "user_id": user_id,
         "nome": nome,
-        "email": user.email,
-        "idade": user.idade,
-        "avatar": user.avatar,
+        "email": user_data["email"],
+        "idade": user_data["idade"],
+        "avatar": user_data["avatar"],
         "posto_proximo": posto_obj
     }
 
+
 @app.get("/posto_proximo/{user_id}")
-async def posto_proximo(user_id: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+async def posto_proximo(user_id: str):
+    user_doc = db_firebase.collection("users").document(user_id).get()
+    if not user_doc.exists:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
-    nome = user.nome.split()[0] if user.nome else "Usuário"
-    cep = user.cep
+    user_data = user_doc.to_dict()
+    nome = user_data["nome"].split()[0] if user_data["nome"] else "Usuário"
+    cep = user_data.get("cep", "")
 
     if not cep:
         return {"postos_proximos": []}
@@ -336,6 +340,7 @@ async def posto_proximo(user_id: str, db: Session = Depends(get_db)):
                 )
                 async with session.get(places_url) as resp:
                     places_data = await resp.json()
+
                 if places_data["status"] != "OK" or not places_data["results"]:
                     return []
 
@@ -352,6 +357,7 @@ async def posto_proximo(user_id: str, db: Session = Depends(get_db)):
 
     postos_list = await buscar_postos(cep, nome)
     return {"postos_proximos": postos_list}
+
 
 @app.post("/chat")
 async def chat(msg: Mensagem, db: Session = Depends(get_db)):
@@ -375,7 +381,20 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
 
+        # Criar no Firebase também
+        db_firebase.collection("users").document(msg.user_id).set({
+            "nome": default_nome,
+            "email": "",
+            "cep": default_cep,
+            "idade": default_idade,
+            "avatar": avatar,
+            "created_at": datetime.utcnow().isoformat(),
+            "posto_enviado": 0
+        })
+
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
+
