@@ -19,3 +19,6 @@ services:
         value: ${OPENROUTER_API_KEY}
       - key: GOOGLE_API_KEY
         value: ${GOOGLE_API_KEY}
+ key: FIREBASE_CRED_JSON
+        value: ${FIREBASE_CRED_JSON}
+
