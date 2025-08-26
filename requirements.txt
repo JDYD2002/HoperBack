@@ -3,7 +3,7 @@ fastapi==0.110.1
 uvicorn[standard]==0.29.0
 pydantic==2.7.1
 openai==1.30.3
-ai21==1.1.1
+ai21
 transformers==4.41.1
 accelerate==0.30.1
 requests==2.31.0
@@ -11,12 +11,14 @@ aiohttp==3.12.0
 httpx==0.27.0
 gtts==2.5.1
 python-multipart==0.0.9
-torch==2.5.0 --extra-index-url https://download.pytorch.org/whl/cpu
 python-dotenv==1.0.1
 loguru==0.7.2
+
+# Instala PyTorch CPU (em linha separada!)
+torch==2.5.0+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
 
 # Extras (opcionais)
 apscheduler==3.10.4
 sqlalchemy==2.0.30
 prometheus-fastapi-instrumentator==6.1.0
-
