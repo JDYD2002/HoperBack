@@ -22,7 +22,18 @@ HF_API_KEY = os.getenv("HF_API_KEY")
 AI21_API_KEY = os.getenv("AI21_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+HF_API_KEY = os.getenv("HF_API_KEY")
+AI21_API_KEY = os.getenv("AI21_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
+# Variável do Firebase
+FIREBASE_CRED_JSON = os.getenv("FIREBASE_CRED_JSON")
+if FIREBASE_CRED_JSON:
+    FIREBASE_CRED = json.loads(FIREBASE_CRED_JSON)
+else:
+    FIREBASE_CRED = None
 # ====================== Inicializa clientes OpenAI ======================
 try:
     from openai import OpenAI as OpenAIClient
@@ -397,6 +408,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
 
 
 
