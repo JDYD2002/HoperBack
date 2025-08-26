@@ -3,14 +3,11 @@ services:
     name: hoper-api
     env: python
     plan: free
+    pythonVersion: 3.12.6   # 👈 força Python 3.12
 
-    # Comando de build
     buildCommand: ./build.sh
-
-    # Comando para iniciar a API
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
 
-    # Variáveis de ambiente
     envVars:
       - key: OPENAI_API_KEY
         value: ${OPENAI_API_KEY}
@@ -22,7 +19,3 @@ services:
         value: ${OPENROUTER_API_KEY}
       - key: GOOGLE_API_KEY
         value: ${GOOGLE_API_KEY}
-      - key: CARGO_HOME
-        value: /tmp/cargo
-      - key: RUSTUP_HOME
-        value: /tmp/rustup
