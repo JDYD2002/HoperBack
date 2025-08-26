@@ -11,6 +11,9 @@ import httpx
 from loguru import logger
 import aiohttp
 from firebase_config import db_firebase
+import json
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # SQLAlchemy
 from sqlalchemy import Column, String, Integer, DateTime, create_engine
@@ -403,6 +406,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
 
 
 
