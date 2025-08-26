@@ -8,17 +8,16 @@ services:
     buildCommand: ./build.sh
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
 
-    envVars:
-      - key: OPENAI_API_KEY
-        value: ${OPENAI_API_KEY}
-      - key: HF_API_KEY
-        value: ${HF_API_KEY}
-      - key: AI21_API_KEY
-        value: ${AI21_API_KEY}
-      - key: OPENROUTER_API_KEY
-        value: ${OPENROUTER_API_KEY}
-      - key: GOOGLE_API_KEY
-        value: ${GOOGLE_API_KEY}
- key: FIREBASE_CRED_JSON
-        value: ${FIREBASE_CRED_JSON}
-
+ envVars:
+  - key: OPENAI_API_KEY
+    value: ${OPENAI_API_KEY}
+  - key: HF_API_KEY
+    value: ${HF_API_KEY}
+  - key: AI21_API_KEY
+    value: ${AI21_API_KEY}
+  - key: OPENROUTER_API_KEY
+    value: ${OPENROUTER_API_KEY}
+  - key: GOOGLE_API_KEY
+    value: ${GOOGLE_API_KEY}
+  - key: FIREBASE_CRED_JSON
+    value: ${FIREBASE_CRED_JSON}  
