@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv
+.envrc
+.git
+.gitignore
+*.sqlite
+hoper.db
