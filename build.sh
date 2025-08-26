@@ -1,13 +1,21 @@
 #!/bin/bash
 set -o errexit
 
-# Variáveis de cache Rust (mesmo que não usemos, deixa seguro)
+# Configurar diretórios para Rust (CRÍTICO)
 export CARGO_HOME=/tmp/cargo
 export RUSTUP_HOME=/tmp/rustup
-export PATH=$CARGO_HOME/bin:$PATH
+export PATH="/tmp/cargo/bin:$PATH"
 
-# Atualiza pip e ferramentas essenciais
-python -m pip install --upgrade pip setuptools wheel
+# Instalar Rust explicitamente
+echo "Instalando Rust..."
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 
-# Instala dependências usando wheels sempre que possível
-pip install --prefer-binary -r requirements.txt
+# Carregar environment do Rust
+source "$CARGO_HOME/env"
+
+# Verificar se Rust foi instalado corretamente
+echo "Rust version: $(rustc --version)"
+echo "Cargo version: $(cargo --version)"
+
+# Instalar dependências Python
+pip install -r requirements.txt
