@@ -1,9 +1,8 @@
 import os
 import re
 import uuid
-import sqlite3
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
 import requests
@@ -11,6 +10,10 @@ import asyncio
 import httpx
 from loguru import logger
 import aiohttp
+
+# SQLAlchemy
+from sqlalchemy import Column, String, Integer, DateTime, create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 # ====================== CHAVES ======================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -37,41 +40,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ====================== BANCO ======================
-DB_PATH = "hoper.db"
+# ====================== BANCO POSTGRES ======================
+DATABASE_URL = os.getenv("DATABASE_URL") or \
+    "postgresql://hoper_saude_db_user:gZ811HPsJK3ZI3mwG3QEux6b2BbFRKQP@dpg-d2mt93jipnbc73fat1eg-a.oregon-postgres.render.com/hoper_saude_db"
 
-def db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-def init_db():
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        nome TEXT NOT NULL,
-        email TEXT NOT NULL,
-        cep TEXT NOT NULL,
-        idade INTEGER NOT NULL,
-        avatar TEXT NOT NULL,
-        posto_enviado INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
-    );""")
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS interactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        sintomas TEXT NOT NULL,
-        doencas TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    );""")
-    conn.commit()
-    conn.close()
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-init_db()
+# ====================== MODELOS ======================
+class User(Base):
+    __tablename__ = "users"
+    id = Column(String, primary_key=True, index=True)
+    nome = Column(String, nullable=False)
+    email = Column(String, nullable=False, unique=True)
+    cep = Column(String, nullable=False)
+    idade = Column(Integer, nullable=False)
+    avatar = Column(String, nullable=False)
+    posto_enviado = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Interaction(Base):
+    __tablename__ = "interactions"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False)
+    sintomas = Column(String, nullable=False)
+    doencas = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
 
 # ====================== SCHEMAS ======================
 class Cadastro(BaseModel):
@@ -108,7 +112,6 @@ def avatar_por_idade(idade: int) -> str:
 async def call_google_maps(cep: str, primeiro_nome: str):
     try:
         async with aiohttp.ClientSession() as session:
-            # 1. Converter CEP em coordenadas
             geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
             async with session.get(geocode_url) as resp:
                 geocode_data = await resp.json()
@@ -119,7 +122,6 @@ async def call_google_maps(cep: str, primeiro_nome: str):
             location = geocode_data["results"][0]["geometry"]["location"]
             lat, lng = location["lat"], location["lng"]
 
-            # 2. Buscar posto de saúde mais próximo
             places_url = (
                 f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
                 f"?location={lat},{lng}&radius=3000&type=hospital&keyword=posto+de+saude&key={GOOGLE_API_KEY}"
@@ -161,7 +163,6 @@ CONVERSA_BASE = [
     }
 ]
 
-# ====================== FALLBACK ======================
 async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usuário"):
     if not hasattr(responder_ia, "historico"):
         responder_ia.historico = {}
@@ -178,7 +179,6 @@ async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usu
         {"role": "user", "content": texto_usuario}
     ]
 
-    # OpenAI
     if client_openai is not None:
         try:
             resp = client_openai.chat.completions.create(
@@ -193,7 +193,6 @@ async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usu
         except Exception as e:
             logger.error(f"❌ OpenAI falhou: {e}")
 
-    # OpenRouter
     async def call_openrouter():
         modelos = ["mistralai/devstral-small:free"]
         async with httpx.AsyncClient(timeout=30) as cli:
@@ -224,7 +223,6 @@ async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usu
 
     return f"Desculpe {primeiro_nome}, não consegui responder no momento. 🙏"
 
-# ====================== AUX ======================
 def sugerir_doencas_curto(texto: str, max_itens: int = 3):
     texto_low = texto.lower()
     sugestoes = []
@@ -235,62 +233,57 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
 
 # ====================== ROTAS ======================
 @app.post("/register")
-async def register(cad: Cadastro):
-    user_id = getattr(cad, "uid", None) or str(uuid.uuid4())
+def register(cad: Cadastro, db: Session = Depends(get_db)):
+    user_id = cad.uid or str(uuid.uuid4())
     avatar = avatar_por_idade(cad.idade)
-    conn = db()
-    cur = conn.cursor()
 
-    # Verifica se usuário já existe
-    cur.execute("SELECT id FROM users WHERE id=?", (user_id,))
-    if cur.fetchone():
-        cur.execute(
-            "UPDATE users SET nome=?, email=?, cep=?, idade=?, avatar=? WHERE id=?",
-            (cad.nome.strip(), cad.email, cad.cep.strip(), cad.idade, avatar, user_id)
-        )
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        user.nome = cad.nome.strip()
+        user.email = cad.email
+        user.cep = cad.cep.strip()
+        user.idade = cad.idade
+        user.avatar = avatar
     else:
-        cur.execute(
-            "INSERT INTO users (id,nome,email,cep,idade,avatar,posto_enviado,created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (user_id, cad.nome.strip(), cad.email, cad.cep.strip(), cad.idade, avatar, 0, datetime.utcnow().isoformat())
+        user = User(
+            id=user_id,
+            nome=cad.nome.strip(),
+            email=cad.email,
+            cep=cad.cep.strip(),
+            idade=cad.idade,
+            avatar=avatar
         )
-
-    conn.commit()
-    conn.close()
-
-    # Retorna apenas dados do usuário, sem posto
-    return {
-        "user_id": user_id,
-        "avatar": avatar,
-    }
+        db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"user_id": user.id, "avatar": avatar}
 
 @app.get("/users/{user_id}")
-def get_user(user_id: str):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,nome,email,cep,idade,avatar,posto_enviado,created_at FROM users WHERE id=?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
+def get_user(user_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    return dict(row)
-
+    return {
+        "id": user.id,
+        "nome": user.nome,
+        "email": user.email,
+        "cep": user.cep,
+        "idade": user.idade,
+        "avatar": user.avatar,
+        "posto_enviado": user.posto_enviado,
+        "created_at": user.created_at
+    }
 
 @app.post("/login")
-async def login(cad: Cadastro):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, nome, email, cep, idade, avatar FROM users WHERE email=?", (cad.email,))
-    user = cur.fetchone()
-    conn.close()
-
+async def login(cad: Cadastro, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == cad.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
-    nome = user["nome"]
-    cep = user["cep"]
-    user_id = user["id"]
+    nome = user.nome
+    cep = user.cep
+    user_id = user.id
 
-    # Buscar posto
     async def format_posto(cep, primeiro_nome):
         res = await call_google_maps(cep, primeiro_nome)
         if res:
@@ -308,24 +301,20 @@ async def login(cad: Cadastro):
     return {
         "user_id": user_id,
         "nome": nome,
-        "email": user["email"],
-        "idade": user["idade"],
-        "avatar": user["avatar"],
+        "email": user.email,
+        "idade": user.idade,
+        "avatar": user.avatar,
         "posto_proximo": posto_obj
     }
-@app.get("/posto_proximo/{user_id}")
-async def posto_proximo(user_id: str):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT cep, nome FROM users WHERE id=?", (user_id,))
-    user = cur.fetchone()
-    conn.close()
 
+@app.get("/posto_proximo/{user_id}")
+async def posto_proximo(user_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
-    nome = user["nome"].split()[0] if user["nome"] else "Usuário"
-    cep = user["cep"]
+    nome = user.nome.split()[0] if user.nome else "Usuário"
+    cep = user.cep
 
     if not cep:
         return {"postos_proximos": []}
@@ -333,30 +322,25 @@ async def posto_proximo(user_id: str):
     async def buscar_postos(cep, primeiro_nome):
         try:
             async with aiohttp.ClientSession() as session:
-                # 1. Converter CEP em coordenadas
                 geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
                 async with session.get(geocode_url) as resp:
                     geocode_data = await resp.json()
-
                 if geocode_data["status"] != "OK":
                     return []
-
                 location = geocode_data["results"][0]["geometry"]["location"]
                 lat, lng = location["lat"], location["lng"]
 
-                # 2. Buscar postos próximos
                 places_url = (
                     f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
                     f"?location={lat},{lng}&radius=3000&type=hospital&keyword=posto+de+saude&key={GOOGLE_API_KEY}"
                 )
                 async with session.get(places_url) as resp:
                     places_data = await resp.json()
-
                 if places_data["status"] != "OK" or not places_data["results"]:
                     return []
 
                 postos = []
-                for place in places_data["results"][:5]:  # pegar até 5
+                for place in places_data["results"][:5]:
                     postos.append({
                         "nome": place.get("name", "Posto"),
                         "endereco": place.get("vicinity", "Endereço não disponível")
@@ -370,31 +354,28 @@ async def posto_proximo(user_id: str):
     return {"postos_proximos": postos_list}
 
 @app.post("/chat")
-async def chat(msg: Mensagem):
+async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     logger.info(f"/chat chamado — user_id={msg.user_id} texto={msg.texto!r}")
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT cep, nome FROM users WHERE id=?", (msg.user_id,))
-    user = cur.fetchone()
+    user = db.query(User).filter(User.id == msg.user_id).first()
 
     if not user:
         default_nome = "Usuário"
         default_cep = ""
         default_idade = 30
         avatar = avatar_por_idade(default_idade)
-        cur.execute(
-            "INSERT INTO users (id,nome,email,cep,idade,avatar,posto_enviado,created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (msg.user_id, default_nome, "", default_cep, default_idade, avatar, 0, datetime.utcnow().isoformat())
+        user = User(
+            id=msg.user_id,
+            nome=default_nome,
+            email="",
+            cep=default_cep,
+            idade=default_idade,
+            avatar=avatar
         )
-        conn.commit()
-        cur.execute("SELECT cep, nome FROM users WHERE id=?", (msg.user_id,))
-        user = cur.fetchone()
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
-    nome = user["nome"] if user["nome"] else "Usuário"
-
-    # só chamar a IA, sem salvar nada
+    nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
-    conn.close()
-
-    return {"resposta": resposta_ia}  # sem "doencas_sug"
+    return {"resposta": resposta_ia}
