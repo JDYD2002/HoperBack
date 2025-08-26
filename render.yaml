@@ -15,6 +15,7 @@ jobs:
       AI21_API_KEY: ${{ secrets.AI21_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      CARGO_HOME: ${{ github.workspace }}/.cargo  # <-- adicionada variável de cache Rust
 
     steps:
       - name: Checkout repo
@@ -25,13 +26,15 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Prepare Rust cache
+        run: mkdir -p $CARGO_HOME
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip setuptools wheel
+          pip install --prefer-binary -r requirements.txt  # <-- forçar wheels
 
       - name: Run tests (exemplo)
         run: |
           echo "Rodando testes..."
           # pytest tests/
-
