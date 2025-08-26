@@ -4,11 +4,11 @@
 # Dependências principais
 fastapi==0.110.1
 uvicorn[standard]==0.29.0
-pydantic==2.7.1
+pydantic[email]==2.7.1
 openai==1.30.3
 ai21==1.1.1
 transformers==4.41.1
-tokenizers>=0.19,<0.20  # CORRIGIDO: versão compatível com transformers
+tokenizers>=0.19,<0.20
 accelerate==0.30.1
 requests==2.31.0
 aiohttp==3.12.0
