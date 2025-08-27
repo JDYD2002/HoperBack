@@ -312,7 +312,6 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
 
 @app.post("/login")
 async def login(cad: Cadastro):
-    # Use UID vindo do Firebase Auth no frontend
     if not cad.uid:
         raise HTTPException(status_code=400, detail="UID do Firebase Auth é obrigatório")
 
@@ -328,6 +327,7 @@ async def login(cad: Cadastro):
         "idade": user_data.get("idade"),
         "avatar": user_data.get("avatar")
     }
+
 
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
@@ -417,41 +417,12 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == msg.user_id).first()
 
     if not user:
-        default_nome = "Usuário"
-        default_cep = ""
-        default_idade = 30
-        avatar = avatar_por_idade(default_idade)
-        
-        # ✅ CORREÇÃO: Email único temporário (com tamanho limitado)
-        user_id_short = msg.user_id[:20]  # Limita para 20 caracteres
-        temp_email = f"temp_{user_id_short}@example.com"
-        
-        user = User(
-            id=msg.user_id,
-            nome=default_nome,
-            email=temp_email,  # ← AGORA É ÚNICO E DE TAMANHO CONTROLADO!
-            cep=default_cep,
-            idade=default_idade,
-            avatar=avatar
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-        db_firebase.collection("users").document(msg.user_id).set({
-            "nome": default_nome,
-            "email": temp_email,
-            "cep": default_cep,
-            "idade": default_idade,
-            "avatar": avatar,
-            "created_at": datetime.utcnow().isoformat(),
-            "posto_enviado": 0
-        })
+        # ❌ NÃO cria mais usuário fantasma
+        raise HTTPException(status_code=404, detail="Usuário não encontrado. Faça login ou registre-se primeiro.")
 
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
-
 
 
 
