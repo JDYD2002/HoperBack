@@ -416,10 +416,14 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
         default_cep = ""
         default_idade = 30
         avatar = avatar_por_idade(default_idade)
+        
+        # ✅ CORREÇÃO: Email único temporário
+        temp_email = f"temp_{msg.user_id}@example.com"
+        
         user = User(
             id=msg.user_id,
             nome=default_nome,
-            email="",
+            email=temp_email,  # ← AGORA É ÚNICO!
             cep=default_cep,
             idade=default_idade,
             avatar=avatar
@@ -430,7 +434,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
 
         db_firebase.collection("users").document(msg.user_id).set({
             "nome": default_nome,
-            "email": "",
+            "email": temp_email,  # ← MESMO EMAIL AQUI!
             "cep": default_cep,
             "idade": default_idade,
             "avatar": avatar,
