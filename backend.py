@@ -345,7 +345,7 @@ async def posto_proximo(user_id: str):
                     return []
 
                 postos = []
-                for place in places_data["results"][:5]:
+                for place in places_data["results"][:10]:
                     nome_posto = place.get("name", "Posto de Saúde")
                     endereco = place.get("formatted_address") or place.get("vicinity") or "Endereço não disponível"
                     postos.append({"nome": nome_posto, "endereco": endereco})
@@ -397,6 +397,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
 
 
 
