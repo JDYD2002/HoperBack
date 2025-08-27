@@ -364,7 +364,7 @@ async def posto_proximo(user_id: str):
                 query = f"posto de saúde, {bairro}, {cidade}"
                 places_url = (
                     f"https://maps.googleapis.com/maps/api/place/textsearch/json"
-                    f"?query={query}&location={lat},{lng}&radius=3000&key={GOOGLE_API_KEY}"
+                    f"?query={query}&location={lat},{lng}&radius=4500&key={GOOGLE_API_KEY}"
                 )
                 async with session.get(places_url) as resp:
                     places_data = await resp.json()
@@ -437,5 +437,6 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
