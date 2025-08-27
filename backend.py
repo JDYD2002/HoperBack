@@ -310,13 +310,13 @@ async def posto_proximo(user_id: str):
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     user_data = user_doc.to_dict()
-    nome = user_data["nome"].split()[0] if user_data.get("nome") else "Usuário"
-    cep = user_data.get("cep", "")
+    nome = user_data.get("nome", "Usuário").split()[0]
+    cep = re.sub(r'\D', '', user_data.get("cep", ""))  # Limpa hífen/espaços
 
     if not cep:
+        logger.warning(f"Usuário {user_id} não possui CEP válido")
         return {"postos_proximos": []}
 
-    # Função interna deve estar indentada corretamente (4 espaços)
     async def buscar_postos(cep, primeiro_nome):
         try:
             async with aiohttp.ClientSession() as session:
@@ -325,30 +325,30 @@ async def posto_proximo(user_id: str):
                 async with session.get(geocode_url) as resp:
                     geocode_data = await resp.json()
 
-                if geocode_data["status"] != "OK" or not geocode_data.get("results"):
+                if geocode_data.get("status") != "OK" or not geocode_data.get("results"):
                     logger.warning(f"⚠️ Geocode não encontrou CEP {cep}")
                     return []
 
                 location = geocode_data["results"][0]["geometry"]["location"]
                 lat, lng = location["lat"], location["lng"]
 
-                # Buscar hospitais próximos
+                # Buscar postos usando textsearch
                 places_url = (
-                    f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
-                    f"?location={lat},{lng}&radius=8000&type=hospital&key={GOOGLE_API_KEY}"
+                    f"https://maps.googleapis.com/maps/api/place/textsearch/json"
+                    f"?query=posto+de+saude+{cep}&location={lat},{lng}&radius=15000&key={GOOGLE_API_KEY}"
                 )
                 async with session.get(places_url) as resp:
                     places_data = await resp.json()
 
-                if places_data["status"] != "OK" or not places_data.get("results"):
-                    logger.warning(f"⚠️ Nenhum hospital encontrado próximo ao CEP {cep}")
+                if places_data.get("status") != "OK" or not places_data.get("results"):
+                    logger.warning(f"⚠️ Nenhum posto encontrado próximo ao CEP {cep}")
                     return []
 
                 postos = []
                 for place in places_data["results"][:10]:
-                    nome = place.get("name", "Hospital")
-                    endereco = place.get("vicinity", "Endereço não disponível")
-                    postos.append({"nome": nome, "endereco": endereco})
+                    nome_posto = place.get("name", "Posto de Saúde")
+                    endereco = place.get("formatted_address") or place.get("vicinity") or "Endereço não disponível"
+                    postos.append({"nome": nome_posto, "endereco": endereco})
 
                 return postos
 
@@ -396,6 +396,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
 
 
 
