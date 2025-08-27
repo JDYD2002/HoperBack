@@ -133,16 +133,21 @@ def avatar_por_idade(idade: int) -> str:
 async def call_google_maps(cep: str, primeiro_nome: str):
     try:
         async with aiohttp.ClientSession() as session:
-       geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?components=postal_code:{cep}|country:BR&key={GOOGLE_API_KEY}"
+            # Geocode pelo CEP
+            geocode_url = (
+                f"https://maps.googleapis.com/maps/api/geocode/json"
+                f"?components=postal_code:{cep}|country:BR&key={GOOGLE_API_KEY}"
+            )
             async with session.get(geocode_url) as resp:
                 geocode_data = await resp.json()
 
-            if geocode_data["status"] != "OK":
+            if geocode_data.get("status") != "OK" or not geocode_data.get("results"):
                 return f"⚠️ Não consegui localizar o CEP {cep}, {primeiro_nome}."
 
             location = geocode_data["results"][0]["geometry"]["location"]
             lat, lng = location["lat"], location["lng"]
 
+            # Busca postos de saúde próximos
             places_url = (
                 f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
                 f"?location={lat},{lng}&radius=3000&type=hospital&keyword=posto+de+saude&key={GOOGLE_API_KEY}"
@@ -150,11 +155,11 @@ async def call_google_maps(cep: str, primeiro_nome: str):
             async with session.get(places_url) as resp:
                 places_data = await resp.json()
 
-            if places_data["status"] != "OK" or not places_data["results"]:
+            if places_data.get("status") != "OK" or not places_data.get("results"):
                 return f"😔 Não encontrei nenhum posto de saúde perto do CEP {cep}, {primeiro_nome}."
 
             place = places_data["results"][0]
-            nome = place["name"]
+            nome = place.get("name", "Posto de Saúde")
             endereco = place.get("vicinity", "Endereço não disponível")
 
             return (
@@ -162,9 +167,11 @@ async def call_google_maps(cep: str, primeiro_nome: str):
                 f"➡️ Nome: {nome}\n"
                 f"📍 Endereço: {endereco}\n"
             )
+
     except Exception as e:
         logger.warning(f"⚠️ Google Maps API falhou: {e}")
         return None
+
 
 
 # ====================== IA ======================
@@ -430,4 +437,5 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
