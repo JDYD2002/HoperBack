@@ -317,40 +317,45 @@ async def posto_proximo(user_id: str):
     if not cep:
         return {"postos_proximos": []}
 
-    async def buscar_postos(cep, primeiro_nome):
-        try:
-            async with aiohttp.ClientSession() as session:
-                geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
-                async with session.get(geocode_url) as resp:
-                    geocode_data = await resp.json()
-                if geocode_data["status"] != "OK":
-                    return []
-                location = geocode_data["results"][0]["geometry"]["location"]
-                lat, lng = location["lat"], location["lng"]
+ async def buscar_postos(cep, primeiro_nome):
+    try:
+        async with aiohttp.ClientSession() as session:
+            # 1️⃣ Geocode do CEP
+            geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
+            async with session.get(geocode_url) as resp:
+                geocode_data = await resp.json()
 
-                places_url = (
-                    f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
-                    f"?location={lat},{lng}&radius=3000&type=hospital&keyword=posto+de+saude&key={GOOGLE_API_KEY}"
-                )
-                async with session.get(places_url) as resp:
-                    places_data = await resp.json()
+            if geocode_data["status"] != "OK" or not geocode_data.get("results"):
+                logger.warning(f"⚠️ Geocode não encontrou CEP {cep}")
+                return []
 
-                if places_data["status"] != "OK" or not places_data["results"]:
-                    return []
+            location = geocode_data["results"][0]["geometry"]["location"]
+            lat, lng = location["lat"], location["lng"]
 
-                return [
-                    {
-                        "nome": place.get("name", "Posto"),
-                        "endereco": place.get("vicinity", "Endereço não disponível")
-                    }
-                    for place in places_data["results"][:5]
-                ]
-        except Exception as e:
-            logger.warning(f"⚠️ Google Maps API falhou: {e}")
-            return []
+            # 2️⃣ Buscar hospitais próximos (maior raio e sem filtro de keyword restritivo)
+            places_url = (
+                f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+                f"?location={lat},{lng}&radius=8000&type=hospital&key={GOOGLE_API_KEY}"
+            )
+            async with session.get(places_url) as resp:
+                places_data = await resp.json()
 
-    postos_list = await buscar_postos(cep, nome)
-    return {"postos_proximos": postos_list}
+            if places_data["status"] != "OK" or not places_data.get("results"):
+                logger.warning(f"⚠️ Nenhum hospital encontrado próximo ao CEP {cep}")
+                return []
+
+            # 3️⃣ Preparar lista de postos/hospitais
+            postos = []
+            for place in places_data["results"][:10]:  # pegar até 10
+                nome = place.get("name", "Hospital")
+                endereco = place.get("vicinity", "Endereço não disponível")
+                postos.append({"nome": nome, "endereco": endereco})
+
+            return postos
+
+    except Exception as e:
+        logger.warning(f"⚠️ Google Maps API falhou: {e}")
+        return []
 
 
 @app.post("/chat")
@@ -390,6 +395,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
 
 
 
