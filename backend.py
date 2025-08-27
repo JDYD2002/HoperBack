@@ -1,17 +1,20 @@
 import os
 import re
 import uuid
+import json
 from datetime import datetime
+
+import asyncio
+import httpx
+import aiohttp
+import requests
+from loguru import logger
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
-import requests
-import asyncio
-import httpx
-from loguru import logger
-import aiohttp
+
 from firebase_config import db_firebase
-import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -32,6 +35,7 @@ if FIREBASE_CRED_JSON:
     FIREBASE_CRED = json.loads(FIREBASE_CRED_JSON)
 else:
     FIREBASE_CRED = None
+
 # ====================== Inicializa clientes OpenAI ======================
 try:
     from openai import OpenAI as OpenAIClient
@@ -58,6 +62,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -65,14 +70,14 @@ def get_db():
     finally:
         db.close()
 
-# ====================== MODELOS ======================
 
+# ====================== MODELOS ======================
 class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, index=True)
     nome = Column(String, nullable=False)
-    email = Column(String, nullable=True, unique=True)   # <- agora aceita NULL
-    cep = Column(String, nullable=True)                  # <- opcional
+    email = Column(String, nullable=False, unique=True)
+    cep = Column(String, nullable=False)
     idade = Column(Integer, nullable=False)
     avatar = Column(String, nullable=False)
     posto_enviado = Column(Integer, default=0)
@@ -86,6 +91,7 @@ class Interaction(Base):
     sintomas = Column(String, nullable=False)
     doencas = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -112,13 +118,16 @@ class Cadastro(BaseModel):
             raise ValueError("CEP inválido, deve conter 8 números")
         return cep_clean
 
+
 class Mensagem(BaseModel):
     user_id: str
     texto: str
 
+
 # ====================== UTIL ======================
 def avatar_por_idade(idade: int) -> str:
     return "jovem" if idade <= 17 else "adulto"
+
 
 # ====================== GOOGLE MAPS FUNÇÕES ======================
 async def call_google_maps(cep: str, primeiro_nome: str):
@@ -153,10 +162,10 @@ async def call_google_maps(cep: str, primeiro_nome: str):
                 f"➡️ Nome: {nome}\n"
                 f"📍 Endereço: {endereco}\n"
             )
-
     except Exception as e:
         logger.warning(f"⚠️ Google Maps API falhou: {e}")
         return None
+
 
 # ====================== IA ======================
 DOENCAS_DB = {
@@ -174,6 +183,7 @@ CONVERSA_BASE = [
         "Nunca faça perguntas ao usuário. Sempre finalize recomendando avaliação médica."
     }
 ]
+
 
 async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usuário"):
     if not hasattr(responder_ia, "historico"):
@@ -235,6 +245,7 @@ async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usu
 
     return f"Desculpe {primeiro_nome}, não consegui responder no momento. 🙏"
 
+
 def sugerir_doencas_curto(texto: str, max_itens: int = 3):
     texto_low = texto.lower()
     sugestoes = []
@@ -243,8 +254,8 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
             sugestoes.extend([d for d in doencas if d not in sugestoes])
     return sugestoes[:max_itens]
 
-# ====================== ROTAS AJUSTADAS ======================
 
+# ====================== ROTAS AJUSTADAS ======================
 @app.post("/register")
 async def register(cad: Cadastro, db: Session = Depends(get_db)):
     user_id = getattr(cad, "uid", None) or str(uuid.uuid4())
@@ -254,7 +265,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if user:
         user.nome = cad.nome.strip()
-        user.email = cad.email.strip() or None
+        user.email = cad.email.strip()
         user.cep = cad.cep.strip()
         user.idade = cad.idade
         user.avatar = avatar
@@ -262,7 +273,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         user = User(
             id=user_id,
             nome=cad.nome.strip(),
-            email=cad.email.strip() or None,   # <- salva None se vier vazio
+            email=cad.email.strip(),
             cep=cad.cep.strip(),
             idade=cad.idade,
             avatar=avatar
@@ -286,16 +297,13 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
 
 @app.post("/login")
 async def login(cad: Cadastro):
-    # Buscar no Firebase
     user_ref = db_firebase.collection("users").where("email", "==", cad.email).get()
-
     if not user_ref:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     user_data = user_ref[0].to_dict()
     user_id = user_ref[0].id
 
-    # só retorna os dados do usuário, sem posto
     return {
         "user_id": user_id,
         "nome": user_data["nome"],
@@ -303,6 +311,7 @@ async def login(cad: Cadastro):
         "idade": user_data["idade"],
         "avatar": user_data["avatar"]
     }
+
 
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
@@ -312,47 +321,34 @@ async def posto_proximo(user_id: str):
 
     user_data = user_doc.to_dict()
     nome = user_data.get("nome", "Usuário").split()[0]
-    cep = re.sub(r'\D', '', user_data.get("cep", ""))  # Limpa hífen/espaços
+    cep = re.sub(r'\D', '', user_data.get("cep", ""))
 
     if not cep:
-        logger.warning(f"Usuário {user_id} não possui CEP válido")
         return {"postos_proximos": []}
 
     async def buscar_postos(cep, primeiro_nome):
         try:
             async with aiohttp.ClientSession() as session:
-                # Geocode do CEP
                 geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
                 async with session.get(geocode_url) as resp:
                     geocode_data = await resp.json()
-
                 if geocode_data.get("status") != "OK" or not geocode_data.get("results"):
-                    logger.warning(f"⚠️ Geocode não encontrou CEP {cep}")
                     return []
-
                 location = geocode_data["results"][0]["geometry"]["location"]
                 lat, lng = location["lat"], location["lng"]
 
-                # Buscar postos próximos usando textsearch
                 places_url = (
                     f"https://maps.googleapis.com/maps/api/place/textsearch/json"
                     f"?query=posto+de+saude&location={lat},{lng}&radius=15000&key={GOOGLE_API_KEY}"
                 )
                 async with session.get(places_url) as resp:
                     places_data = await resp.json()
-
                 if places_data.get("status") != "OK" or not places_data.get("results"):
-                    logger.warning(f"⚠️ Nenhum posto encontrado próximo ao CEP {cep}")
                     return []
-
-                postos = []
-                for place in places_data["results"][:10]:
-                    nome_posto = place.get("name", "Posto de Saúde")
-                    endereco = place.get("formatted_address") or place.get("vicinity") or "Endereço não disponível"
-                    postos.append({"nome": nome_posto, "endereco": endereco})
-
-                return postos
-
+                return [
+                    {"nome": place.get("name", "Posto"), "endereco": place.get("formatted_address") or place.get("vicinity") or "Endereço não disponível"}
+                    for place in places_data["results"][:10]
+                ]
         except Exception as e:
             logger.warning(f"⚠️ Google Maps API falhou: {e}")
             return []
@@ -368,14 +364,13 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
 
     if not user:
         default_nome = "Usuário"
-        default_cep = None
+        default_cep = ""
         default_idade = 30
         avatar = avatar_por_idade(default_idade)
-
         user = User(
             id=msg.user_id,
             nome=default_nome,
-            email=None,   # <- evita conflito no unique
+            email="",
             cep=default_cep,
             idade=default_idade,
             avatar=avatar
@@ -384,11 +379,10 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
 
-        # Criar no Firebase também
         db_firebase.collection("users").document(msg.user_id).set({
             "nome": default_nome,
             "email": "",
-            "cep": default_cep or "",
+            "cep": default_cep,
             "idade": default_idade,
             "avatar": avatar,
             "created_at": datetime.utcnow().isoformat(),
@@ -397,18 +391,4 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
 
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
-
     return {"resposta": resposta_ia}
-
-
-
-
-
-
-
-
-
-
-
-
-
