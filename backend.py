@@ -66,16 +66,18 @@ def get_db():
         db.close()
 
 # ====================== MODELOS ======================
+
 class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, index=True)
     nome = Column(String, nullable=False)
-    email = Column(String, nullable=False, unique=True)
-    cep = Column(String, nullable=False)
+    email = Column(String, nullable=True, unique=True)   # <- agora aceita NULL
+    cep = Column(String, nullable=True)                  # <- opcional
     idade = Column(Integer, nullable=False)
     avatar = Column(String, nullable=False)
     posto_enviado = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class Interaction(Base):
     __tablename__ = "interactions"
@@ -252,7 +254,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if user:
         user.nome = cad.nome.strip()
-        user.email = cad.email.strip()
+        user.email = cad.email.strip() or None
         user.cep = cad.cep.strip()
         user.idade = cad.idade
         user.avatar = avatar
@@ -260,7 +262,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         user = User(
             id=user_id,
             nome=cad.nome.strip(),
-            email=cad.email.strip(),
+            email=cad.email.strip() or None,   # <- salva None se vier vazio
             cep=cad.cep.strip(),
             idade=cad.idade,
             avatar=avatar
@@ -279,7 +281,6 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         "posto_enviado": 0
     })
 
-    # não retorna posto aqui
     return {"user_id": user_id, "avatar": avatar}
 
 
@@ -367,13 +368,14 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
 
     if not user:
         default_nome = "Usuário"
-        default_cep = ""
+        default_cep = None
         default_idade = 30
         avatar = avatar_por_idade(default_idade)
+
         user = User(
             id=msg.user_id,
             nome=default_nome,
-            email="",
+            email=None,   # <- evita conflito no unique
             cep=default_cep,
             idade=default_idade,
             avatar=avatar
@@ -386,7 +388,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
         db_firebase.collection("users").document(msg.user_id).set({
             "nome": default_nome,
             "email": "",
-            "cep": default_cep,
+            "cep": default_cep or "",
             "idade": default_idade,
             "avatar": avatar,
             "created_at": datetime.utcnow().isoformat(),
@@ -397,6 +399,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
 
 
 
