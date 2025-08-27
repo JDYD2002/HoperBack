@@ -58,7 +58,11 @@ app.add_middleware(
 DATABASE_URL = os.getenv("DATABASE_URL") or \
     "postgresql://hoper_saude_db_user:gZ811HPsJK3ZI3mwG3QEux6b2BbFRKQP@dpg-d2mt93jipnbc73fat1eg-a.oregon-postgres.render.com/hoper_saude_db"
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,     # testa e renova conexão antes de usar
+    pool_recycle=1800       # recicla conexões a cada 30 min
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -437,6 +441,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
