@@ -269,12 +269,21 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
 # ====================== ROTAS AJUSTADAS ======================
 @app.post("/register")
 async def register(cad: Cadastro, db: Session = Depends(get_db)):
-    user_id = cad.uid or str(uuid.uuid4())
     avatar = avatar_por_idade(cad.idade)
 
-    # Salvar no Postgres
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    # Verifica se já existe usuário com esse email
+    user = db.query(User).filter(User.email == cad.email.strip()).first()
+    if user:
+        # Atualiza dados existentes
+        user.nome = cad.nome.strip()
+        user.cep = cad.cep.strip()
+        user.idade = cad.idade
+        user.avatar = avatar
+        user_id = user.id
+        db.commit()
+    else:
+        # Cria novo usuário
+        user_id = getattr(cad, "uid", None) or str(uuid.uuid4())
         user = User(
             id=user_id,
             nome=cad.nome.strip(),
@@ -287,7 +296,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
 
-    # Salvar no Firebase Firestore
+    # Atualiza ou cria usuário no Firebase
     db_firebase.collection("users").document(user_id).set({
         "nome": cad.nome.strip(),
         "email": cad.email.strip(),
@@ -299,6 +308,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
     })
 
     return {"user_id": user_id, "avatar": avatar}
+
 
 @app.post("/login")
 async def login(cad: Cadastro):
@@ -441,6 +451,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
