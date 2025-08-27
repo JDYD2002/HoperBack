@@ -269,18 +269,12 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
 # ====================== ROTAS AJUSTADAS ======================
 @app.post("/register")
 async def register(cad: Cadastro, db: Session = Depends(get_db)):
-    user_id = getattr(cad, "uid", None) or str(uuid.uuid4())
+    user_id = cad.uid or str(uuid.uuid4())
     avatar = avatar_por_idade(cad.idade)
 
     # Salvar no Postgres
     user = db.query(User).filter(User.id == user_id).first()
-    if user:
-        user.nome = cad.nome.strip()
-        user.email = cad.email.strip()
-        user.cep = cad.cep.strip()
-        user.idade = cad.idade
-        user.avatar = avatar
-    else:
+    if not user:
         user = User(
             id=user_id,
             nome=cad.nome.strip(),
@@ -290,9 +284,10 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
             avatar=avatar
         )
         db.add(user)
-    db.commit()
+        db.commit()
+        db.refresh(user)
 
-    # Salvar no Firebase
+    # Salvar no Firebase Firestore
     db_firebase.collection("users").document(user_id).set({
         "nome": cad.nome.strip(),
         "email": cad.email.strip(),
@@ -305,24 +300,24 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
 
     return {"user_id": user_id, "avatar": avatar}
 
-
 @app.post("/login")
 async def login(cad: Cadastro):
-    user_ref = db_firebase.collection("users").where("email", "==", cad.email).get()
-    if not user_ref:
+    # Use UID vindo do Firebase Auth no frontend
+    if not cad.uid:
+        raise HTTPException(status_code=400, detail="UID do Firebase Auth é obrigatório")
+
+    user_doc = db_firebase.collection("users").document(cad.uid).get()
+    if not user_doc.exists:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
-    user_data = user_ref[0].to_dict()
-    user_id = user_ref[0].id
-
+    user_data = user_doc.to_dict()
     return {
-        "user_id": user_id,
-        "nome": user_data["nome"],
-        "email": user_data["email"],
-        "idade": user_data["idade"],
-        "avatar": user_data["avatar"]
+        "user_id": cad.uid,
+        "nome": user_data.get("nome"),
+        "email": user_data.get("email"),
+        "idade": user_data.get("idade"),
+        "avatar": user_data.get("avatar")
     }
-
 
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
@@ -446,6 +441,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
