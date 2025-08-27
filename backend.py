@@ -133,7 +133,7 @@ def avatar_por_idade(idade: int) -> str:
 async def call_google_maps(cep: str, primeiro_nome: str):
     try:
         async with aiohttp.ClientSession() as session:
-            geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
+       geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?components=postal_code:{cep}|country:BR&key={GOOGLE_API_KEY}"
             async with session.get(geocode_url) as resp:
                 geocode_data = await resp.json()
 
@@ -315,6 +315,7 @@ async def login(cad: Cadastro):
 
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
+    # Pega usuário no Firebase
     user_doc = db_firebase.collection("users").document(user_id).get()
     if not user_doc.exists:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
@@ -329,32 +330,69 @@ async def posto_proximo(user_id: str):
     async def buscar_postos(cep, primeiro_nome):
         try:
             async with aiohttp.ClientSession() as session:
-                geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
+                # Geocode pelo CEP
+                geocode_url = (
+                    f"https://maps.googleapis.com/maps/api/geocode/json"
+                    f"?components=postal_code:{cep}|country:BR&key={GOOGLE_API_KEY}"
+                )
                 async with session.get(geocode_url) as resp:
                     geocode_data = await resp.json()
+
                 if geocode_data.get("status") != "OK" or not geocode_data.get("results"):
                     return []
+
                 location = geocode_data["results"][0]["geometry"]["location"]
                 lat, lng = location["lat"], location["lng"]
 
+                # Extrai bairro e cidade do geocode
+                bairro = ""
+                cidade = ""
+                for comp in geocode_data["results"][0]["address_components"]:
+                    if "sublocality_level_1" in comp["types"] or "neighborhood" in comp["types"]:
+                        bairro = comp["long_name"]
+                    if "administrative_area_level_2" in comp["types"]:
+                        cidade = comp["long_name"]
+
+                # Busca postos de saúde próximos, query com bairro e cidade
+                query = f"posto de saúde, {bairro}, {cidade}"
                 places_url = (
                     f"https://maps.googleapis.com/maps/api/place/textsearch/json"
-                    f"?query=posto+de+saude&location={lat},{lng}&radius=15000&key={GOOGLE_API_KEY}"
+                    f"?query={query}&location={lat},{lng}&radius=3000&key={GOOGLE_API_KEY}"
                 )
                 async with session.get(places_url) as resp:
                     places_data = await resp.json()
+
                 if places_data.get("status") != "OK" or not places_data.get("results"):
                     return []
-                return [
-                    {"nome": place.get("name", "Posto"), "endereco": place.get("formatted_address") or place.get("vicinity") or "Endereço não disponível"}
-                    for place in places_data["results"][:10]
-                ]
+
+                # Filtra resultados que contenham o mesmo CEP ou bairro
+                postos_filtrados = []
+                for place in places_data["results"]:
+                    endereco = place.get("formatted_address") or place.get("vicinity") or ""
+                    endereco_cep = re.sub(r'\D', '', endereco)
+                    if cep in endereco_cep or (bairro.lower() in endereco.lower()):
+                        postos_filtrados.append({
+                            "nome": place.get("name", "Posto"),
+                            "endereco": endereco
+                        })
+
+                # Se não achar nenhum, retorna todos do raio
+                if not postos_filtrados:
+                    postos_filtrados = [
+                        {"nome": place.get("name", "Posto"),
+                         "endereco": place.get("formatted_address") or place.get("vicinity") or "Endereço não disponível"}
+                        for place in places_data["results"][:10]
+                    ]
+
+                return postos_filtrados[:10]
+
         except Exception as e:
             logger.warning(f"⚠️ Google Maps API falhou: {e}")
             return []
 
     postos_list = await buscar_postos(cep, nome)
     return {"postos_proximos": postos_list}
+
 
 
 @app.post("/chat")
@@ -392,3 +430,4 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
