@@ -303,7 +303,6 @@ async def login(cad: Cadastro):
         "avatar": user_data["avatar"]
     }
 
-
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
     user_doc = db_firebase.collection("users").document(user_id).get()
@@ -317,46 +316,48 @@ async def posto_proximo(user_id: str):
     if not cep:
         return {"postos_proximos": []}
 
- async def buscar_postos(cep, primeiro_nome):
-    try:
-        async with aiohttp.ClientSession() as session:
-            # 1️⃣ Geocode do CEP
-            geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
-            async with session.get(geocode_url) as resp:
-                geocode_data = await resp.json()
+    # Função interna deve estar indentada corretamente (4 espaços)
+    async def buscar_postos(cep, primeiro_nome):
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Geocode do CEP
+                geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={cep}&key={GOOGLE_API_KEY}"
+                async with session.get(geocode_url) as resp:
+                    geocode_data = await resp.json()
 
-            if geocode_data["status"] != "OK" or not geocode_data.get("results"):
-                logger.warning(f"⚠️ Geocode não encontrou CEP {cep}")
-                return []
+                if geocode_data["status"] != "OK" or not geocode_data.get("results"):
+                    logger.warning(f"⚠️ Geocode não encontrou CEP {cep}")
+                    return []
 
-            location = geocode_data["results"][0]["geometry"]["location"]
-            lat, lng = location["lat"], location["lng"]
+                location = geocode_data["results"][0]["geometry"]["location"]
+                lat, lng = location["lat"], location["lng"]
 
-            # 2️⃣ Buscar hospitais próximos (maior raio e sem filtro de keyword restritivo)
-            places_url = (
-                f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
-                f"?location={lat},{lng}&radius=8000&type=hospital&key={GOOGLE_API_KEY}"
-            )
-            async with session.get(places_url) as resp:
-                places_data = await resp.json()
+                # Buscar hospitais próximos
+                places_url = (
+                    f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+                    f"?location={lat},{lng}&radius=8000&type=hospital&key={GOOGLE_API_KEY}"
+                )
+                async with session.get(places_url) as resp:
+                    places_data = await resp.json()
 
-            if places_data["status"] != "OK" or not places_data.get("results"):
-                logger.warning(f"⚠️ Nenhum hospital encontrado próximo ao CEP {cep}")
-                return []
+                if places_data["status"] != "OK" or not places_data.get("results"):
+                    logger.warning(f"⚠️ Nenhum hospital encontrado próximo ao CEP {cep}")
+                    return []
 
-            # 3️⃣ Preparar lista de postos/hospitais
-            postos = []
-            for place in places_data["results"][:10]:  # pegar até 10
-                nome = place.get("name", "Hospital")
-                endereco = place.get("vicinity", "Endereço não disponível")
-                postos.append({"nome": nome, "endereco": endereco})
+                postos = []
+                for place in places_data["results"][:10]:
+                    nome = place.get("name", "Hospital")
+                    endereco = place.get("vicinity", "Endereço não disponível")
+                    postos.append({"nome": nome, "endereco": endereco})
 
-            return postos
+                return postos
 
-    except Exception as e:
-        logger.warning(f"⚠️ Google Maps API falhou: {e}")
-        return []
+        except Exception as e:
+            logger.warning(f"⚠️ Google Maps API falhou: {e}")
+            return []
 
+    postos_list = await buscar_postos(cep, nome)
+    return {"postos_proximos": postos_list}
 
 @app.post("/chat")
 async def chat(msg: Mensagem, db: Session = Depends(get_db)):
@@ -395,6 +396,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
 
     return {"resposta": resposta_ia}
+
 
 
 
