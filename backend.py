@@ -267,6 +267,14 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
 
 
 # ====================== ROTAS AJUSTADAS ======================
+from pydantic import BaseModel, EmailStr
+
+# ====================== NOVO SCHEMA PARA LOGIN ======================
+class LoginModel(BaseModel):
+    uid: str
+
+# ====================== ROTAS AJUSTADAS ======================
+
 @app.post("/register")
 async def register(cad: Cadastro, db: Session = Depends(get_db)):
     avatar = avatar_por_idade(cad.idade)
@@ -283,7 +291,9 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         db.commit()
     else:
         # Cria novo usuário
-        user_id = getattr(cad, "uid", None) or str(uuid.uuid4())
+        user_id = getattr(cad, "uid", None)
+        if not user_id:
+            user_id = str(uuid.uuid4())
         user = User(
             id=user_id,
             nome=cad.nome.strip(),
@@ -307,21 +317,19 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         "posto_enviado": 0
     })
 
+    # Retorna user_id para frontend salvar e usar no login
     return {"user_id": user_id, "avatar": avatar}
 
 
 @app.post("/login")
-async def login(cad: Cadastro):
-    if not cad.uid:
-        raise HTTPException(status_code=400, detail="UID do Firebase Auth é obrigatório")
-
-    user_doc = db_firebase.collection("users").document(cad.uid).get()
+async def login(login: LoginModel):
+    user_doc = db_firebase.collection("users").document(login.uid).get()
     if not user_doc.exists:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     user_data = user_doc.to_dict()
     return {
-        "user_id": cad.uid,
+        "user_id": login.uid,
         "nome": user_data.get("nome"),
         "email": user_data.get("email"),
         "idade": user_data.get("idade"),
@@ -360,7 +368,6 @@ async def posto_proximo(user_id: str):
                 location = geocode_data["results"][0]["geometry"]["location"]
                 lat, lng = location["lat"], location["lng"]
 
-                # Extrai bairro e cidade do geocode
                 bairro = ""
                 cidade = ""
                 for comp in geocode_data["results"][0]["address_components"]:
@@ -369,7 +376,6 @@ async def posto_proximo(user_id: str):
                     if "administrative_area_level_2" in comp["types"]:
                         cidade = comp["long_name"]
 
-                # Busca postos de saúde próximos, query com bairro e cidade
                 query = f"posto de saúde, {bairro}, {cidade}"
                 places_url = (
                     f"https://maps.googleapis.com/maps/api/place/textsearch/json"
@@ -381,7 +387,6 @@ async def posto_proximo(user_id: str):
                 if places_data.get("status") != "OK" or not places_data.get("results"):
                     return []
 
-                # Filtra resultados que contenham o mesmo CEP ou bairro
                 postos_filtrados = []
                 for place in places_data["results"]:
                     endereco = place.get("formatted_address") or place.get("vicinity") or ""
@@ -392,7 +397,6 @@ async def posto_proximo(user_id: str):
                             "endereco": endereco
                         })
 
-                # Se não achar nenhum, retorna todos do raio
                 if not postos_filtrados:
                     postos_filtrados = [
                         {"nome": place.get("name", "Posto"),
@@ -410,7 +414,6 @@ async def posto_proximo(user_id: str):
     return {"postos_proximos": postos_list}
 
 
-
 @app.post("/chat")
 async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     logger.info(f"/chat chamado — user_id={msg.user_id} texto={msg.texto!r}")
@@ -423,6 +426,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
