@@ -3,21 +3,19 @@ import re
 import uuid
 import json
 from datetime import datetime
+from firebase_admin import auth as fb_auth
 
 import asyncio
 import httpx
 import aiohttp
 import requests
 from loguru import logger
-
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
-
 from firebase_config import db_firebase
 import firebase_admin
 from firebase_admin import credentials, firestore
-
 # SQLAlchemy
 from sqlalchemy import Column, String, Integer, DateTime, create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
@@ -105,7 +103,9 @@ class Cadastro(BaseModel):
     email: EmailStr
     cep: str
     idade: int
-    uid: str | None = None
+    uid: str | None = None       # preferir usar uid do Firebase Auth
+    id_token: str | None = None  # opcional: se enviar, vamos verificar
+
 
     @field_validator("idade")
     @classmethod
@@ -126,11 +126,16 @@ class Cadastro(BaseModel):
 class LoginModel(BaseModel):
     uid: str | None = None
     email: EmailStr | None = None
+    id_token: str | None = None  # opcional: login via token é o mais seguro
 
 class Mensagem(BaseModel):
     user_id: str
     texto: str
 
+# --- HELPER: normalizador ---
+
+def _email_lower(s: str | None) -> str:
+    return (s or "").strip().lower()
 
 # ====================== UTIL ======================
 def avatar_por_idade(idade: int) -> str:
@@ -272,94 +277,116 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
 # ====================== ROTAS AJUSTADAS ======================
 @app.post("/register")
 async def register(cad: Cadastro, db: Session = Depends(get_db)):
-    avatar = avatar_por_idade(cad.idade)
-    email_clean = cad.email.strip().lower()  # 🔑 sempre lowercase
+    # 1) Descobrir UID com prioridade: id_token > uid explícito
+    uid = None
+    if cad.id_token:
+        decoded = fb_auth.verify_id_token(cad.id_token)
+        uid = decoded["uid"]
+        # opcional: preferir email do token (fonte mais confiável)
+        token_email = decoded.get("email")
+        if token_email:
+            cad.email = token_email
+    elif cad.uid:
+        uid = cad.uid
 
-    # Verifica se já existe usuário com esse email
+    if not uid:
+        # Não gere UUID local. Exija UID do Auth pra evitar “usuário fantasma”
+        raise HTTPException(status_code=400, detail="UID obrigatório (use Firebase Auth).")
+
+    email_clean = _email_lower(cad.email)
+    avatar = avatar_por_idade(cad.idade)
+
+    # SQL: upsert por email
     user = db.query(User).filter(User.email == email_clean).first()
     if user:
-        # Atualiza dados existentes
         user.nome = cad.nome.strip()
         user.cep = cad.cep.strip()
         user.idade = cad.idade
         user.avatar = avatar
-        user_id = user.id
+        user.id = uid  # garante alinhamento
         db.commit()
     else:
-        # Cria novo usuário
-        user_id = getattr(cad, "uid", None)
-        if not user_id:
-            user_id = str(uuid.uuid4())
         user = User(
-            id=user_id,
+            id=uid,
             nome=cad.nome.strip(),
-            email=email_clean,  # 🔑 salvo lowercase
+            email=email_clean,
             cep=cad.cep.strip(),
             idade=cad.idade,
-            avatar=avatar
+            avatar=avatar,
         )
         db.add(user)
         db.commit()
         db.refresh(user)
 
-    # Atualiza ou cria usuário no Firebase
-    db_firebase.collection("users").document(user_id).set({
+    # Firestore: doc SEMPRE em users/{uid}
+    db_firebase.collection("users").document(uid).set({
         "nome": cad.nome.strip(),
-        "email": email_clean,  # 🔑 salvo lowercase
+        "email": email_clean,
         "cep": cad.cep.strip(),
         "idade": cad.idade,
         "avatar": avatar,
         "created_at": datetime.utcnow().isoformat(),
         "posto_enviado": 0
-    })
+    }, merge=True)
 
-    # Retorna user_id para frontend salvar e usar no login
-    return {"user_id": user_id, "avatar": avatar}
+    return {"user_id": uid, "avatar": avatar}
 
 
 @app.post("/login")
 async def login(data: LoginModel):
     logger.info(f"Login chamado — uid={data.uid!r} email={data.email!r}")
 
-    # 🔎 Debug: listar todos usuários do Firebase
-    users_ref = db_firebase.collection("users").get()
-    logger.info(f"Usuários no Firebase ({len(users_ref)}):")
-    for user_doc in users_ref:
-        logger.info(f"- {user_doc.id} -> {user_doc.to_dict()}")
+    user_doc = None
+    user_data = {}
 
-    # 1ª tentativa: pelo UID
+    # Se houver UID
     if data.uid:
         user_doc = db_firebase.collection("users").document(data.uid).get()
         if user_doc.exists:
             user_data = user_doc.to_dict()
-            logger.info(f"Usuário encontrado por UID: {user_doc.id}")
-            return {
-                "user_id": data.uid,
-                "nome": user_data["nome"],
-                "email": user_data["email"],
-                "idade": user_data["idade"],
-                "avatar": user_data["avatar"],
-                "cep": user_data.get("cep", "")
-            }
+            logger.info(f"Usuário encontrado por UID: {user_doc.id} -> {user_data}")
         else:
-            logger.warning(f"Nenhum usuário encontrado com UID: {data.uid}")
+            # Auto-provisionamento
+            logger.info(f"Auto-provisionado users/{data.uid} a partir do Firebase Auth.")
+            # Busca dados básicos no Firebase Auth
+            firebase_auth_user = firebase_admin.auth.get_user(data.uid)
+            user_data = {
+                "nome": firebase_auth_user.display_name or "Usuário",
+                "email": firebase_auth_user.email,
+                "idade": 0,
+                "cep": "",
+                "avatar": "adulto",
+                "posto_enviado": 0,
+                "created_at": datetime.utcnow().isoformat()
+            }
+            db_firebase.collection("users").document(data.uid).set(user_data)
 
-    # 2ª tentativa: pelo email
-    if data.email:
+    # Se houver email
+    elif data.email:
         email_clean = data.email.strip().lower()
-        for user_doc in users_ref:
-            user_data = user_doc.to_dict()
-            if user_data.get("email", "").strip().lower() == email_clean:
-                logger.info(f"Usuário encontrado por email: {user_doc.id}")
-                return {
-                    "user_id": user_doc.id,
-                    "nome": user_data["nome"],
-                    "email": user_data["email"],
-                    "idade": user_data["idade"],
-                    "avatar": user_data["avatar"],
-                    "cep": user_data.get("cep", "")
-                }
-        logger.warning(f"Nenhum usuário encontrado com email: {email_clean}")
+        users_ref = db_firebase.collection("users").get()
+        for doc in users_ref:
+            udata = doc.to_dict()
+            if udata.get("email", "").strip().lower() == email_clean:
+                user_data = udata
+                data.uid = doc.id
+                break
+
+    if not user_data:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    # Segurança ao pegar o primeiro nome
+    nome_full = user_data.get("nome", "").strip()
+    primeiro_nome = nome_full.split()[0] if nome_full else "Usuário"
+
+    return {
+        "user_id": data.uid,
+        "nome": primeiro_nome,
+        "email": user_data.get("email", ""),
+        "idade": user_data.get("idade", 0),
+        "avatar": user_data.get("avatar", "adulto"),
+        "cep": user_data.get("cep", "")
+    }
 
     raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
@@ -371,9 +398,15 @@ async def posto_proximo(user_id: str):
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     user_data = user_doc.to_dict()
-    nome = user_data.get("nome", "Usuário").split()[0]
+
+    # Evita IndexError se nome estiver vazio
+    nome_full = user_data.get("nome", "").strip()
+    nome = nome_full.split()[0] if nome_full else "Usuário"
+
+    # Limpa o CEP para ter só números
     cep = re.sub(r'\D', '', user_data.get("cep", ""))
 
+    # Se não tiver CEP válido, retorna lista vazia
     if not cep:
         return {"postos_proximos": []}
 
@@ -452,15 +485,3 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
-
-
-
-
-
-
-
-
-
-
-
-
