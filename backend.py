@@ -321,21 +321,40 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
     return {"user_id": user_id, "avatar": avatar}
 
 
+💡 ALTERNATIVA MAIS SIMPLES (Recomendada):
+Mude para buscar por documento ID diretamente se possível:
+python
 @app.post("/login")
-async def login(login: LoginModel):
-    user_doc = db_firebase.collection("users").document(login.uid).get()
-    if not user_doc.exists:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
-    user_data = user_doc.to_dict()
-    return {
-        "user_id": login.uid,
-        "nome": user_data.get("nome"),
-        "email": user_data.get("email"),
-        "idade": user_data.get("idade"),
-        "avatar": user_data.get("avatar")
-    }
-
+async def login(cad: Cadastro):
+    # ✅ Se o frontend envia o UID, usa diretamente
+    if cad.uid:
+        user_doc = db_firebase.collection("users").document(cad.uid).get()
+        if user_doc.exists:
+            user_data = user_doc.to_dict()
+            return {
+                "user_id": cad.uid,
+                "nome": user_data["nome"],
+                "email": user_data["email"],
+                "idade": user_data["idade"],
+                "avatar": user_data["avatar"]
+            }
+    
+    # ✅ Busca por email (com fallback)
+    email_clean = cad.email.strip().lower()
+    users_ref = db_firebase.collection("users").get()
+    
+    for user_doc in users_ref:
+        user_data = user_doc.to_dict()
+        if user_data.get("email", "").strip().lower() == email_clean:
+            return {
+                "user_id": user_doc.id,
+                "nome": user_data["nome"],
+                "email": user_data["email"],
+                "idade": user_data["idade"],
+                "avatar": user_data["avatar"]
+            }
+    
+    raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
@@ -426,6 +445,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
