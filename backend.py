@@ -123,6 +123,10 @@ class Cadastro(BaseModel):
         return cep_clean
 
 
+class LoginModel(BaseModel):
+    uid: str | None = None
+    email: EmailStr | None = None
+
 class Mensagem(BaseModel):
     user_id: str
     texto: str
@@ -438,6 +442,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
