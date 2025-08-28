@@ -337,6 +337,7 @@ async def login(cad: Cadastro):
                 "email": user_data["email"],
                 "idade": user_data["idade"],
                 "avatar": user_data["avatar"]
+                "cep": user_data.get("cep", "")
             }
     
     # ✅ Busca por email (com fallback)
@@ -352,6 +353,8 @@ async def login(cad: Cadastro):
                 "email": user_data["email"],
                 "idade": user_data["idade"],
                 "avatar": user_data["avatar"]
+                 "cep": user_data.get("cep", "")
+                
             }
     
     raise HTTPException(status_code=404, detail="Usuário não encontrado")
@@ -445,6 +448,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
