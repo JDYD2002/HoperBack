@@ -270,13 +270,13 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
     return sugestoes[:max_itens]
 
 # ====================== ROTAS AJUSTADAS ======================
-
 @app.post("/register")
 async def register(cad: Cadastro, db: Session = Depends(get_db)):
     avatar = avatar_por_idade(cad.idade)
+    email_clean = cad.email.strip().lower()  # 🔑 sempre lowercase
 
     # Verifica se já existe usuário com esse email
-    user = db.query(User).filter(User.email == cad.email.strip()).first()
+    user = db.query(User).filter(User.email == email_clean).first()
     if user:
         # Atualiza dados existentes
         user.nome = cad.nome.strip()
@@ -293,7 +293,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         user = User(
             id=user_id,
             nome=cad.nome.strip(),
-            email=cad.email.strip(),
+            email=email_clean,  # 🔑 salvo lowercase
             cep=cad.cep.strip(),
             idade=cad.idade,
             avatar=avatar
@@ -305,7 +305,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
     # Atualiza ou cria usuário no Firebase
     db_firebase.collection("users").document(user_id).set({
         "nome": cad.nome.strip(),
-        "email": cad.email.strip(),
+        "email": email_clean,  # 🔑 salvo lowercase
         "cep": cad.cep.strip(),
         "idade": cad.idade,
         "avatar": avatar,
@@ -321,12 +321,18 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
 async def login(data: LoginModel):
     logger.info(f"Login chamado — uid={data.uid!r} email={data.email!r}")
 
-    # Se houver UID
+    # 🔎 Debug: listar todos usuários do Firebase
+    users_ref = db_firebase.collection("users").get()
+    logger.info(f"Usuários no Firebase ({len(users_ref)}):")
+    for user_doc in users_ref:
+        logger.info(f"- {user_doc.id} -> {user_doc.to_dict()}")
+
+    # 1ª tentativa: pelo UID
     if data.uid:
         user_doc = db_firebase.collection("users").document(data.uid).get()
         if user_doc.exists:
             user_data = user_doc.to_dict()
-            logger.info(f"Usuário encontrado por UID: {user_doc.id} -> {user_data}")
+            logger.info(f"Usuário encontrado por UID: {user_doc.id}")
             return {
                 "user_id": data.uid,
                 "nome": user_data["nome"],
@@ -338,14 +344,11 @@ async def login(data: LoginModel):
         else:
             logger.warning(f"Nenhum usuário encontrado com UID: {data.uid}")
 
-    # Se houver email
+    # 2ª tentativa: pelo email
     if data.email:
         email_clean = data.email.strip().lower()
-        users_ref = db_firebase.collection("users").get()
-        logger.info(f"Total de usuários no Firebase: {len(users_ref)}")
         for user_doc in users_ref:
             user_data = user_doc.to_dict()
-            logger.info(f"Verificando usuário {user_doc.id} -> {user_data.get('email')}")
             if user_data.get("email", "").strip().lower() == email_clean:
                 logger.info(f"Usuário encontrado por email: {user_doc.id}")
                 return {
@@ -449,7 +452,6 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
-
 
 
 
