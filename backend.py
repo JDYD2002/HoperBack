@@ -99,6 +99,9 @@ class Interaction(Base):
 
 Base.metadata.create_all(bind=engine)
 
+class LoginModel(BaseModel):
+    uid: str
+
 # ====================== SCHEMAS ======================
 class Cadastro(BaseModel):
     nome: str
@@ -442,6 +445,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
