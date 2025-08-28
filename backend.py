@@ -99,11 +99,6 @@ class Interaction(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# Modelo usado apenas no /login
-class LoginModel(BaseModel):
-    uid: str | None = None      # UID do Firebase, opcional
-    email: EmailStr | None = None  # Email do usuário, opcional
-
 # ====================== SCHEMAS ======================
 class Cadastro(BaseModel):
     nome: str
@@ -269,14 +264,6 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
         if sintoma in texto_low:
             sugestoes.extend([d for d in doencas if d not in sugestoes])
     return sugestoes[:max_itens]
-
-
-# ====================== ROTAS AJUSTADAS ======================
-from pydantic import BaseModel, EmailStr
-
-# ====================== NOVO SCHEMA PARA LOGIN ======================
-class LoginModel(BaseModel):
-    uid: str
 
 # ====================== ROTAS AJUSTADAS ======================
 
@@ -451,6 +438,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
