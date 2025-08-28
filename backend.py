@@ -321,9 +321,6 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
     return {"user_id": user_id, "avatar": avatar}
 
 
-💡 ALTERNATIVA MAIS SIMPLES (Recomendada):
-Mude para buscar por documento ID diretamente se possível:
-python
 @app.post("/login")
 async def login(cad: Cadastro):
     # ✅ Se o frontend envia o UID, usa diretamente
@@ -445,6 +442,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
