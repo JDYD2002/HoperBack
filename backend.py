@@ -319,11 +319,14 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
 
 @app.post("/login")
 async def login(data: LoginModel):
+    logger.info(f"Login chamado — uid={data.uid!r} email={data.email!r}")
+
+    # Se houver UID
     if data.uid:
-        # busca usuário pelo UID no Firebase
         user_doc = db_firebase.collection("users").document(data.uid).get()
         if user_doc.exists:
             user_data = user_doc.to_dict()
+            logger.info(f"Usuário encontrado por UID: {user_doc.id} -> {user_data}")
             return {
                 "user_id": data.uid,
                 "nome": user_data["nome"],
@@ -332,14 +335,19 @@ async def login(data: LoginModel):
                 "avatar": user_data["avatar"],
                 "cep": user_data.get("cep", "")
             }
+        else:
+            logger.warning(f"Nenhum usuário encontrado com UID: {data.uid}")
 
+    # Se houver email
     if data.email:
-        # busca usuário pelo email no Firebase
         email_clean = data.email.strip().lower()
         users_ref = db_firebase.collection("users").get()
+        logger.info(f"Total de usuários no Firebase: {len(users_ref)}")
         for user_doc in users_ref:
             user_data = user_doc.to_dict()
+            logger.info(f"Verificando usuário {user_doc.id} -> {user_data.get('email')}")
             if user_data.get("email", "").strip().lower() == email_clean:
+                logger.info(f"Usuário encontrado por email: {user_doc.id}")
                 return {
                     "user_id": user_doc.id,
                     "nome": user_data["nome"],
@@ -348,10 +356,9 @@ async def login(data: LoginModel):
                     "avatar": user_data["avatar"],
                     "cep": user_data.get("cep", "")
                 }
+        logger.warning(f"Nenhum usuário encontrado com email: {email_clean}")
 
     raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
-    
 
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
@@ -442,6 +449,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
