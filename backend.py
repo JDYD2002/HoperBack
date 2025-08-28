@@ -99,8 +99,10 @@ class Interaction(Base):
 
 Base.metadata.create_all(bind=engine)
 
+# Modelo usado apenas no /login
 class LoginModel(BaseModel):
-    uid: str
+    uid: str | None = None      # UID do Firebase, opcional
+    email: EmailStr | None = None  # Email do usuário, opcional
 
 # ====================== SCHEMAS ======================
 class Cadastro(BaseModel):
@@ -325,39 +327,40 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
 
 
 @app.post("/login")
-async def login(cad: Cadastro):
-    # ✅ Se o frontend envia o UID, usa diretamente
-    if cad.uid:
-        user_doc = db_firebase.collection("users").document(cad.uid).get()
+async def login(data: LoginModel):
+    if data.uid:
+        # busca usuário pelo UID no Firebase
+        user_doc = db_firebase.collection("users").document(data.uid).get()
         if user_doc.exists:
             user_data = user_doc.to_dict()
             return {
-                "user_id": cad.uid,
+                "user_id": data.uid,
                 "nome": user_data["nome"],
                 "email": user_data["email"],
                 "idade": user_data["idade"],
-                "avatar": user_data["avatar"]
+                "avatar": user_data["avatar"],
                 "cep": user_data.get("cep", "")
             }
-    
-    # ✅ Busca por email (com fallback)
-    email_clean = cad.email.strip().lower()
-    users_ref = db_firebase.collection("users").get()
-    
-    for user_doc in users_ref:
-        user_data = user_doc.to_dict()
-        if user_data.get("email", "").strip().lower() == email_clean:
-            return {
-                "user_id": user_doc.id,
-                "nome": user_data["nome"],
-                "email": user_data["email"],
-                "idade": user_data["idade"],
-                "avatar": user_data["avatar"]
-                 "cep": user_data.get("cep", "")
-                
-            }
-    
+
+    if data.email:
+        # busca usuário pelo email no Firebase
+        email_clean = data.email.strip().lower()
+        users_ref = db_firebase.collection("users").get()
+        for user_doc in users_ref:
+            user_data = user_doc.to_dict()
+            if user_data.get("email", "").strip().lower() == email_clean:
+                return {
+                    "user_id": user_doc.id,
+                    "nome": user_data["nome"],
+                    "email": user_data["email"],
+                    "idade": user_data["idade"],
+                    "avatar": user_data["avatar"],
+                    "cep": user_data.get("cep", "")
+                }
+
     raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    
 
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
@@ -448,6 +451,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
