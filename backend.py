@@ -198,9 +198,14 @@ DOENCAS_DB = {
 
 CONVERSA_BASE = [
     {"role": "system", "content":
-        "Você é Hoper Saúde, assistente amigável e empático. "
-        "Diante de um sintoma fornecido, liste possíveis condições médicas e remédios comuns em 2-3 frases. "
-        "Nunca faça perguntas ao usuário. Sempre finalize recomendando avaliação médica."
+        "Você é Hoper Saúde, um assistente amigável e empático."
+"Quando o usuário relatar sintomas, responda em 1 a 2 frases curtas" 
+"sugerindo cuidados simples e gerais (hidratação, descanso, boa alimentação, higiene, sombra, ventilação, etc.)."
+"Nunca cite nomes de doenças ou remédios. Sempre finalize recomendando avaliação médica."
+"Finalize sempre orientando qual tipo de unidade de saúde procurar:"
+"Posto de saúde para sintomas leves ou acompanhamento."
+"UPA (Urgência/Pronto Atendimento) para sintomas moderados ou que causem desconforto maior."
+"Hospital para casos graves ou persistentes."
     }
 ]
 
@@ -215,8 +220,13 @@ async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usu
     messages = [
         {"role": "system", "content":
             f"Converse com {primeiro_nome}, seja amigável e empático. "
-            "Liste possíveis condições médicas e remédios comuns em 2-3 frases. "
-            "Finalize recomendando avaliação médica."
+        "Quando o usuário relatar sintomas, responda em 1 a 2 frases curtas" 
+"sugerindo cuidados simples e gerais (hidratação, descanso, boa alimentação, higiene, sombra, ventilação, etc.)."
+"Nunca cite nomes de doenças ou remédios. Sempre finalize recomendando avaliação médica."
+"Finalize sempre orientando qual tipo de unidade de saúde procurar:"
+"Posto de saúde para sintomas leves ou acompanhamento."
+"UPA (Urgência/Pronto Atendimento) para sintomas moderados ou que causem desconforto maior."
+"Hospital para casos graves ou persistentes."
         },
         {"role": "user", "content": texto_usuario}
     ]
@@ -485,3 +495,4 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
