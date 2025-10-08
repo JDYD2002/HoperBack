@@ -56,7 +56,7 @@ app.add_middleware(
 from sqlalchemy.exc import OperationalError
 
 DATABASE_URL = os.getenv("DATABASE_URL") or \
-    "postgresql://hoper_saude_db_user:gZ811HPsJK3ZI3mwG3QEux6b2BbFRKQP@dpg-d2mt93jipnbc73fat1eg-a.oregon-postgres.render.com/hoper_saude_db"
+    "postgresql://hopper_user:ldWCHcTkhoV7WE71NGyMCKeG6lHRKmLI@dpg-d3j62h3e5dus739j3kcg-a/hopper"
 
 # Corrige prefixo do Render, se vier como "postgres://"
 if DATABASE_URL.startswith("postgres://"):
