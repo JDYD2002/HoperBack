@@ -53,18 +53,36 @@ app.add_middleware(
 )
 
 # ====================== BANCO POSTGRES ======================
+from sqlalchemy.exc import OperationalError
+
 DATABASE_URL = os.getenv("DATABASE_URL") or \
     "postgresql://hoper_saude_db_user:gZ811HPsJK3ZI3mwG3QEux6b2BbFRKQP@dpg-d2mt93jipnbc73fat1eg-a.oregon-postgres.render.com/hoper_saude_db"
+
+# Corrige prefixo do Render, se vier como "postgres://"
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
 engine = create_engine(
     DATABASE_URL,
     connect_args={"sslmode": "require"},  # 🔒 Render exige SSL
-    pool_pre_ping=True,                   # testa conexão antes de usar
+    pool_pre_ping=True,                   # evita conexões mortas
     pool_recycle=1800                     # recicla a cada 30 min
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# Teste de conexão com log
+def test_connection():
+    try:
+        with engine.connect() as conn:
+            print("✅ Conectado ao banco de dados com sucesso!")
+    except OperationalError as e:
+        print("❌ Erro ao conectar ao banco de dados:")
+        print(e)
+
+# Executa teste ao iniciar
+test_connection()
 
 
 def get_db():
@@ -73,7 +91,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
 
 # ====================== MODELOS ======================
 class User(Base):
@@ -497,5 +514,6 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
