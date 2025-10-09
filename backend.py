@@ -56,7 +56,7 @@ app.add_middleware(
 from sqlalchemy.exc import OperationalError
 
 DATABASE_URL = os.getenv("DATABASE_URL") or \
-    "postgresql://hopper_user:ldWCHcTkhoV7WE71NGyMCKeG6lHRKmLI@dpg-d3j62h3e5dus739j3kcg-a/hopper"
+"postgresql+psycopg2://hopper_user:ldWCHcTkhoV7WE71NGyMCKeG6lHRKmLI@dpg-d3j62h3e5dus739j3kcg-a.oregon-postgres.render.com/hopper"
 
 # Corrige prefixo do Render, se vier como "postgres://"
 if DATABASE_URL.startswith("postgres://"):
@@ -514,6 +514,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
