@@ -306,59 +306,76 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
 # ====================== ROTAS AJUSTADAS ======================
 @app.post("/register")
 async def register(cad: Cadastro, db: Session = Depends(get_db)):
-    # 1) Descobrir UID com prioridade: id_token > uid explícito
-    uid = None
-    if cad.id_token:
-        decoded = fb_auth.verify_id_token(cad.id_token)
-        uid = decoded["uid"]
-        # opcional: preferir email do token (fonte mais confiável)
-        token_email = decoded.get("email")
-        if token_email:
-            cad.email = token_email
-    elif cad.uid:
-        uid = cad.uid
+    """
+    Cadastra ou atualiza o usuário no Postgres e Firestore.
+    Evita conflito de e-mail já existente e mantém UID do Firebase.
+    """
+    try:
+        # 1️⃣ UID prioritário: id_token > uid explícito
+        uid = None
+        if cad.id_token:
+            decoded = fb_auth.verify_id_token(cad.id_token)
+            uid = decoded["uid"]
+            cad.email = decoded.get("email", cad.email)
+        elif cad.uid:
+            uid = cad.uid
 
-    if not uid:
-        # Não gere UUID local. Exija UID do Auth pra evitar “usuário fantasma”
-        raise HTTPException(status_code=400, detail="UID obrigatório (use Firebase Auth).")
+        if not uid:
+            raise HTTPException(status_code=400, detail="UID obrigatório (use Firebase Auth).")
 
-    email_clean = _email_lower(cad.email)
-    avatar = avatar_por_idade(cad.idade)
+        email_clean = _email_lower(cad.email)
+        avatar = avatar_por_idade(cad.idade)
 
-    # SQL: upsert por email
-    user = db.query(User).filter(User.email == email_clean).first()
-    if user:
-        user.nome = cad.nome.strip()
-        user.cep = cad.cep.strip()
-        user.idade = cad.idade
-        user.avatar = avatar
-        user.id = uid  # garante alinhamento
-        db.commit()
-    else:
-        user = User(
-            id=uid,
-            nome=cad.nome.strip(),
-            email=email_clean,
-            cep=cad.cep.strip(),
-            idade=cad.idade,
-            avatar=avatar,
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+        # 2️⃣ Verificar se o usuário já existe no banco (por UID OU email)
+        user = db.query(User).filter((User.id == uid) | (User.email == email_clean)).first()
 
-    # Firestore: doc SEMPRE em users/{uid}
-    db_firebase.collection("users").document(uid).set({
-        "nome": cad.nome.strip(),
-        "email": email_clean,
-        "cep": cad.cep.strip(),
-        "idade": cad.idade,
-        "avatar": avatar,
-        "created_at": datetime.utcnow().isoformat(),
-        "posto_enviado": 0
-    }, merge=True)
+        if user:
+            # 🟡 Usuário já existe → apenas atualiza dados (sem erro de duplicado)
+            user.id = uid  # Garante sincronização
+            user.nome = cad.nome.strip()
+            user.email = email_clean
+            user.cep = cad.cep.strip()
+            user.idade = cad.idade
+            user.avatar = avatar
+            db.commit()
+            logger.info(f"Usuário existente atualizado: {uid} ({email_clean})")
 
-    return {"user_id": uid, "avatar": avatar}
+        else:
+            # 🟢 Novo usuário → cria normalmente
+            user = User(
+                id=uid,
+                nome=cad.nome.strip(),
+                email=email_clean,
+                cep=cad.cep.strip(),
+                idade=cad.idade,
+                avatar=avatar,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            logger.info(f"Novo usuário criado no SQL: {uid} ({email_clean})")
+
+        # 3️⃣ Sincronizar Firestore SEM duplicar documento
+        db_firebase.collection("users").document(uid).set({
+            "nome": cad.nome.strip(),
+            "email": email_clean,
+            "cep": cad.cep.strip(),
+            "idade": cad.idade,
+            "avatar": avatar,
+            "created_at": datetime.utcnow().isoformat(),
+            "posto_enviado": 0
+        }, merge=True)
+
+        logger.success(f"Usuário {uid} sincronizado com Firestore com sucesso!")
+        return {"user_id": uid, "avatar": avatar}
+
+    except fb_auth.InvalidIdTokenError:
+        logger.error("Token inválido recebido no registro.")
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    except Exception as e:
+        logger.error(f"Erro no registro: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar usuário: {str(e)}")
 
 
 @app.post("/login")
