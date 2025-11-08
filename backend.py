@@ -10,15 +10,12 @@ import httpx
 import aiohttp
 import requests
 from loguru import logger
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
 from firebase_config import db_firebase
 import firebase_admin
 from firebase_admin import credentials, firestore
-# SQLAlchemy
-from sqlalchemy import Column, String, Integer, DateTime, create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 # ====================== CHAVES ======================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -52,75 +49,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ====================== BANCO POSTGRES ======================
-from sqlalchemy.exc import OperationalError
-
-DATABASE_URL = os.getenv("DATABASE_URL") or \
-"postgresql+psycopg2://hopper_user:ldWCHcTkhoV7WE71NGyMCKeG6lHRKmLI@dpg-d3j62h3e5dus739j3kcg-a.oregon-postgres.render.com/hopper"
-
-# Corrige prefixo do Render, se vier como "postgres://"
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
-
-# Determina se está rodando localmente ou na Render
-IS_LOCAL = "localhost" in DATABASE_URL or "127.0.0.1" in DATABASE_URL
-
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={} if IS_LOCAL else {"sslmode": "require"},  # SSL só para Render
-    pool_pre_ping=True,
-    pool_recycle=1800
-)
-
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# Teste de conexão com log
-def test_connection():
-    try:
-        with engine.connect() as conn:
-            print("✅ Conectado ao banco de dados com sucesso!")
-    except OperationalError as e:
-        print("❌ Erro ao conectar ao banco de dados:")
-        print(e)
-
-# Executa teste ao iniciar
-test_connection()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# ====================== MODELOS ======================
-class User(Base):
-    __tablename__ = "users"
-    id = Column(String, primary_key=True, index=True)
-    nome = Column(String, nullable=False)
-    email = Column(String, nullable=False, unique=True)
-    cep = Column(String, nullable=False)
-    idade = Column(Integer, nullable=False)
-    avatar = Column(String, nullable=False)
-    posto_enviado = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class Interaction(Base):
-    __tablename__ = "interactions"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String, nullable=False)
-    sintomas = Column(String, nullable=False)
-    doencas = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-Base.metadata.create_all(bind=engine)
-
-# ====================== SCHEMAS ======================
+# ====================== MODELOS FIREBASE ======================
 class Cadastro(BaseModel):
     nome: str
     email: EmailStr
@@ -128,7 +57,6 @@ class Cadastro(BaseModel):
     idade: int
     uid: str | None = None       # preferir usar uid do Firebase Auth
     id_token: str | None = None  # opcional: se enviar, vamos verificar
-
 
     @field_validator("idade")
     @classmethod
@@ -156,14 +84,12 @@ class Mensagem(BaseModel):
     texto: str
 
 # --- HELPER: normalizador ---
-
 def _email_lower(s: str | None) -> str:
     return (s or "").strip().lower()
 
 # ====================== UTIL ======================
 def avatar_por_idade(idade: int) -> str:
     return "jovem" if idade <= 17 else "adulto"
-
 
 # ====================== GOOGLE MAPS FUNÇÕES ======================
 async def call_google_maps(cep: str, primeiro_nome: str):
@@ -208,8 +134,6 @@ async def call_google_maps(cep: str, primeiro_nome: str):
         logger.warning(f"⚠️ Google Maps API falhou: {e}")
         return None
 
-
-
 # ====================== IA ======================
 DOENCAS_DB = {
     "febre": ["gripe", "dengue", "covid-19", "infecção bacteriana"],
@@ -222,16 +146,15 @@ DOENCAS_DB = {
 CONVERSA_BASE = [
     {"role": "system", "content":
         "Você é Hoper Saúde, um assistente amigável e empático."
-"Quando o usuário relatar sintomas, responda em 1 a 2 frases curtas" 
-"sugerindo cuidados simples e gerais (hidratação, descanso, boa alimentação, higiene, sombra, ventilação, etc.)."
-"Nunca cite nomes de doenças ou remédios. Sempre finalize recomendando avaliação médica."
-"Finalize sempre orientando qual tipo de unidade de saúde procurar:"
-"Posto de saúde para sintomas leves ou acompanhamento."
-"UPA (Urgência/Pronto Atendimento) para sintomas moderados ou que causem desconforto maior."
-"Hospital para casos graves ou persistentes."
+        "Quando o usuário relatar sintomas, responda em 1 a 2 frases curtas" 
+        "sugerindo cuidados simples e gerais (hidratação, descanso, boa alimentação, higiene, sombra, ventilação, etc.)."
+        "Nunca cite nomes de doenças ou remédios. Sempre finalize recomendando avaliação médica."
+        "Finalize sempre orientando qual tipo de unidade de saúde procurar:"
+        "Posto de saúde para sintomas leves ou acompanhamento."
+        "UPA (Urgência/Pronto Atendimento) para sintomas moderados ou que causem desconforto maior."
+        "Hospital para casos graves ou persistentes."
     }
 ]
-
 
 async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usuário"):
     if not hasattr(responder_ia, "historico"):
@@ -243,13 +166,13 @@ async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usu
     messages = [
         {"role": "system", "content":
             f"Converse com {primeiro_nome}, seja amigável e empático. "
-        "Quando o usuário relatar sintomas, responda em 1 a 2 frases curtas" 
-"sugerindo cuidados simples e gerais (hidratação, descanso, boa alimentação, higiene, sombra, ventilação, etc.)."
-"Nunca cite nomes de doenças ou remédios. Sempre finalize recomendando avaliação médica."
-"Finalize sempre orientando qual tipo de unidade de saúde procurar:"
-"Posto de saúde para sintomas leves ou acompanhamento."
-"UPA (Urgência/Pronto Atendimento) para sintomas moderados ou que causem desconforto maior."
-"Hospital para casos graves ou persistentes."
+            "Quando o usuário relatar sintomas, responda em 1 a 2 frases curtas" 
+            "sugerindo cuidados simples e gerais (hidratação, descanso, boa alimentação, higiene, sombra, ventilação, etc.)."
+            "Nunca cite nomes de doenças ou remédios. Sempre finalize recomendando avaliação médica."
+            "Finalize sempre orientando qual tipo de unidade de saúde procurar:"
+            "Posto de saúde para sintomas leves ou acompanhamento."
+            "UPA (Urgência/Pronto Atendimento) para sintomas moderados ou que causem desconforto maior."
+            "Hospital para casos graves ou persistentes."
         },
         {"role": "user", "content": texto_usuario}
     ]
@@ -298,7 +221,6 @@ async def responder_ia(texto_usuario: str, user_id: str = None, nome: str = "usu
 
     return f"Desculpe {primeiro_nome}, não consegui responder no momento. 🙏"
 
-
 def sugerir_doencas_curto(texto: str, max_itens: int = 3):
     texto_low = texto.lower()
     sugestoes = []
@@ -307,15 +229,13 @@ def sugerir_doencas_curto(texto: str, max_itens: int = 3):
             sugestoes.extend([d for d in doencas if d not in sugestoes])
     return sugestoes[:max_itens]
 
-# ====================== ROTAS AJUSTADAS ======================
+# ====================== ROTAS ======================
 @app.post("/register")
-async def register(cad: Cadastro, db: Session = Depends(get_db)):
+async def register(cad: Cadastro):
     """
-    Cadastra ou atualiza o usuário no Postgres e Firestore.
-    Evita conflito de e-mail já existente e mantém UID do Firebase.
+    Cadastra ou atualiza o usuário apenas no Firestore.
     """
     try:
-        # 1️⃣ UID prioritário: id_token > uid explícito
         uid = None
         if cad.id_token:
             decoded = fb_auth.verify_id_token(cad.id_token)
@@ -330,36 +250,7 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
         email_clean = _email_lower(cad.email)
         avatar = avatar_por_idade(cad.idade)
 
-        # 2️⃣ Verificar se o usuário já existe no banco (por UID OU email)
-        user = db.query(User).filter((User.id == uid) | (User.email == email_clean)).first()
-
-        if user:
-            # 🟡 Usuário já existe → apenas atualiza dados (sem erro de duplicado)
-            user.id = uid  # Garante sincronização
-            user.nome = cad.nome.strip()
-            user.email = email_clean
-            user.cep = cad.cep.strip()
-            user.idade = cad.idade
-            user.avatar = avatar
-            db.commit()
-            logger.info(f"Usuário existente atualizado: {uid} ({email_clean})")
-
-        else:
-            # 🟢 Novo usuário → cria normalmente
-            user = User(
-                id=uid,
-                nome=cad.nome.strip(),
-                email=email_clean,
-                cep=cad.cep.strip(),
-                idade=cad.idade,
-                avatar=avatar,
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            logger.info(f"Novo usuário criado no SQL: {uid} ({email_clean})")
-
-        # 3️⃣ Sincronizar Firestore SEM duplicar documento
+        # Sincronizar Firestore SEM duplicar documento
         db_firebase.collection("users").document(uid).set({
             "nome": cad.nome.strip(),
             "email": email_clean,
@@ -376,11 +267,9 @@ async def register(cad: Cadastro, db: Session = Depends(get_db)):
     except fb_auth.InvalidIdTokenError:
         logger.error("Token inválido recebido no registro.")
         raise HTTPException(status_code=401, detail="Token inválido.")
-
     except Exception as e:
         logger.error(f"Erro no registro: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao registrar usuário: {str(e)}")
-
 
 @app.post("/login")
 async def login(data: LoginModel):
@@ -389,16 +278,13 @@ async def login(data: LoginModel):
     user_doc = None
     user_data = {}
 
-    # Se houver UID
     if data.uid:
         user_doc = db_firebase.collection("users").document(data.uid).get()
         if user_doc.exists:
             user_data = user_doc.to_dict()
             logger.info(f"Usuário encontrado por UID: {user_doc.id} -> {user_data}")
         else:
-            # Auto-provisionamento
             logger.info(f"Auto-provisionado users/{data.uid} a partir do Firebase Auth.")
-            # Busca dados básicos no Firebase Auth
             firebase_auth_user = firebase_admin.auth.get_user(data.uid)
             user_data = {
                 "nome": firebase_auth_user.display_name or "Usuário",
@@ -411,7 +297,6 @@ async def login(data: LoginModel):
             }
             db_firebase.collection("users").document(data.uid).set(user_data)
 
-    # Se houver email
     elif data.email:
         email_clean = data.email.strip().lower()
         users_ref = db_firebase.collection("users").get()
@@ -425,7 +310,6 @@ async def login(data: LoginModel):
     if not user_data:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
-    # Segurança ao pegar o primeiro nome
     nome_full = user_data.get("nome", "").strip()
     primeiro_nome = nome_full.split()[0] if nome_full else "Usuário"
 
@@ -438,32 +322,23 @@ async def login(data: LoginModel):
         "cep": user_data.get("cep", "")
     }
 
-    raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
 @app.get("/posto_proximo/{user_id}")
 async def posto_proximo(user_id: str):
-    # Pega usuário no Firebase
     user_doc = db_firebase.collection("users").document(user_id).get()
     if not user_doc.exists:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     user_data = user_doc.to_dict()
-
-    # Evita IndexError se nome estiver vazio
     nome_full = user_data.get("nome", "").strip()
     nome = nome_full.split()[0] if nome_full else "Usuário"
-
-    # Limpa o CEP para ter só números
     cep = re.sub(r'\D', '', user_data.get("cep", ""))
 
-    # Se não tiver CEP válido, retorna lista vazia
     if not cep:
         return {"postos_proximos": []}
 
     async def buscar_postos(cep, primeiro_nome):
         try:
             async with aiohttp.ClientSession() as session:
-                # Geocode pelo CEP
                 geocode_url = (
                     f"https://maps.googleapis.com/maps/api/geocode/json"
                     f"?components=postal_code:{cep}|country:BR&key={GOOGLE_API_KEY}"
@@ -522,22 +397,15 @@ async def posto_proximo(user_id: str):
     postos_list = await buscar_postos(cep, nome)
     return {"postos_proximos": postos_list}
 
-
 @app.post("/chat")
-async def chat(msg: Mensagem, db: Session = Depends(get_db)):
+async def chat(msg: Mensagem):
     logger.info(f"/chat chamado — user_id={msg.user_id} texto={msg.texto!r}")
-    user = db.query(User).filter(User.id == msg.user_id).first()
 
-    if not user:
-        # ❌ NÃO cria mais usuário fantasma
+    user_doc = db_firebase.collection("users").document(msg.user_id).get()
+    if not user_doc.exists:
         raise HTTPException(status_code=404, detail="Usuário não encontrado. Faça login ou registre-se primeiro.")
 
-    nome = user.nome if user.nome else "Usuário"
+    user_data = user_doc.to_dict()
+    nome = user_data.get("nome", "Usuário")
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
-
-
-
-
-
-
