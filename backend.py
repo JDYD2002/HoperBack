@@ -64,9 +64,9 @@ if DATABASE_URL.startswith("postgres://"):
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"sslmode": "require"},  # 🔒 Render exige SSL
-    pool_pre_ping=True,                   # evita conexões mortas
-    pool_recycle=1800                     # recicla a cada 30 min
+    connect_args={} if IS_LOCAL else {"sslmode": "require"},  # SSL só para Render
+    pool_pre_ping=True,
+    pool_recycle=1800
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -531,6 +531,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
