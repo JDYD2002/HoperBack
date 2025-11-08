@@ -17,14 +17,13 @@ gtts==2.5.1
 python-multipart==0.0.9
 python-dotenv==1.0.1
 loguru==0.7.2
-psycopg2-binary
 # PyTorch (CPU wheel será buscado no index acima)
 torch==2.8.0
 firebase-admin
 
 # Extras opcionais
 apscheduler==3.10.4
-sqlalchemy==2.0.30
 prometheus-fastapi-instrumentator==6.1.0
+
 
 
