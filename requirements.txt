@@ -2,6 +2,8 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Dependências principais
+psycopg2-binary
+sqlalchemy==2.0.30
 fastapi==0.110.1
 uvicorn[standard]==0.29.0
 pydantic[email]==2.7.1
@@ -24,6 +26,7 @@ firebase-admin
 # Extras opcionais
 apscheduler==3.10.4
 prometheus-fastapi-instrumentator==6.1.0
+
 
 
 
