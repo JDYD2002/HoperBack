@@ -62,12 +62,16 @@ DATABASE_URL = os.getenv("DATABASE_URL") or \
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
+# Determina se está rodando localmente ou na Render
+IS_LOCAL = "localhost" in DATABASE_URL or "127.0.0.1" in DATABASE_URL
+
 engine = create_engine(
     DATABASE_URL,
     connect_args={} if IS_LOCAL else {"sslmode": "require"},  # SSL só para Render
     pool_pre_ping=True,
     pool_recycle=1800
 )
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -531,6 +535,7 @@ async def chat(msg: Mensagem, db: Session = Depends(get_db)):
     nome = user.nome if user.nome else "Usuário"
     resposta_ia = await responder_ia(msg.texto, user_id=msg.user_id, nome=nome)
     return {"resposta": resposta_ia}
+
 
 
 
